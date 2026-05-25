@@ -70,8 +70,18 @@ if sistema_login():
 
     supabase = init_connection()
 
-    # FUNCTION AUXILIAR PARA REGISTRAR HISTÓRICO
+    # ===== FUNÇÃO DE HISTÓRICO (VERSÃO ENXUTA) =====
     def registrar_historico(acao, detalhes=""):
+        # Só registra ações realmente importantes
+        acoes_importantes = [
+            "ABERTURA DE CHAMADO", "FINALIZAR CHAMADO",
+            "CADASTRAR USUÁRIO", "REMOVER USUÁRIO",
+            "CADASTRO DE ATIVO", "EDIÇÃO DE ATIVO", "REMOVER ATIVO"
+        ]
+        
+        if acao not in acoes_importantes:
+            return  # Ignora ações desnecessárias
+        
         try:
             payload_hist = {
                 "usuario": st.session_state.usuario_nome,
@@ -81,7 +91,8 @@ if sistema_login():
             }
             supabase.table("historico").insert(payload_hist).execute()
         except:
-            pass 
+            pass
+    # ===== FIM DA FUNÇÃO =====
 
     def carregar_dados():
         try:
@@ -99,6 +110,227 @@ if sistema_login():
             return pd.DataFrame(response.data)
         except:
             return pd.DataFrame()
+        
+        # --- FUNÇÃO PARA GERAR RELATÓRIO PDF ---
+    def gerar_relatorio_pdf(ano, mes):
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import cm, mm
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        import tempfile
+        from datetime import datetime
+        import locale
+        
+        try:
+            locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
+        except:
+            try:
+                locale.setlocale(locale.LC_TIME, 'portuguese')
+            except:
+                pass
+        
+        # Carregar dados do mês selecionado
+        df_chamados = carregar_chamados()
+        if df_chamados.empty:
+            return None
+        
+        df_chamados['created_at'] = pd.to_datetime(df_chamados['created_at'])
+        
+        # Filtrar por mês/ano
+        df_mes = df_chamados[
+            (df_chamados['created_at'].dt.year == ano) & 
+            (df_chamados['created_at'].dt.month == mes)
+        ]
+        
+        if df_mes.empty:
+            return None
+        
+        # Carregar histórico para saber quem resolveu (aproximado)
+        df_hist = carregar_historico()
+        
+        # Calcular métricas
+        total_chamados = len(df_mes)
+        chamados_resolvidos = len(df_hist[df_hist['acao'] == 'FINALIZAR CHAMADO']) if not df_hist.empty else 0
+        taxa_resolucao = (chamados_resolvidos / total_chamados * 100) if total_chamados > 0 else 0
+        
+        # Ranking de usuários que abriram chamados (baseado no histórico)
+        ranking_aberturas = {}
+        if not df_hist.empty:
+            aberturas = df_hist[df_hist['acao'] == 'ABERTURA DE CHAMADO']
+            for _, row in aberturas.iterrows():
+                usuario = row.get('usuario', 'Desconhecido')
+                ranking_aberturas[usuario] = ranking_aberturas.get(usuario, 0) + 1
+        
+        ranking_ordenado = sorted(ranking_aberturas.items(), key=lambda x: x[1], reverse=True)[:5]
+        
+        # Distribuição por prioridade
+        prioridades = df_mes['prioridade'].value_counts()
+        
+        # Criar arquivo temporário para o PDF
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+        pdf_path = temp_file.name
+        temp_file.close()
+        
+        # Configurar documento
+        doc = SimpleDocTemplate(pdf_path, pagesize=A4)
+        styles = getSampleStyleSheet()
+        elementos = []
+        
+        # Título principal
+        titulo_style = ParagraphStyle(
+            'Titulo',
+            parent=styles['Heading1'],
+            fontSize=24,
+            textColor=colors.HexColor('#1E40AF'),
+            alignment=1,  # Centralizado
+            spaceAfter=20
+        )
+        
+        subtitulo_style = ParagraphStyle(
+            'Subtitulo',
+            parent=styles['Heading2'],
+            fontSize=14,
+            textColor=colors.grey,
+            alignment=1,
+            spaceAfter=30
+        )
+        
+        # Cabeçalho
+        elementos.append(Paragraph("BITHELP - GEARTECH SOLUTIONS", titulo_style))
+        elementos.append(Paragraph(f"RELATÓRIO GERENCIAL DE CHAMADOS", subtitulo_style))
+        
+        nome_mes = datetime(ano, mes, 1).strftime('%B/%Y').capitalize()
+        elementos.append(Paragraph(f"<b>Mês de Referência:</b> {nome_mes}", styles['Normal']))
+        elementos.append(Paragraph(f"<b>Data de Geração:</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
+        elementos.append(Spacer(1, 20))
+        
+        # ===== RESUMO GERAL =====
+        elementos.append(Paragraph("<b><font size=14>📊 RESUMO GERAL</font></b>", styles['Heading3']))
+        elementos.append(Spacer(1, 10))
+        
+        dados_resumo = [
+            ['Total de Chamados', str(total_chamados)],
+            ['Chamados Resolvidos', str(chamados_resolvidos)],
+            ['Taxa de Resolução', f"{taxa_resolucao:.1f}%"],
+            ['Em Aberto', str(total_chamados - chamados_resolvidos)],
+        ]
+        
+        tabela_resumo = Table(dados_resumo, colWidths=[120, 80])
+        tabela_resumo.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#1E40AF')),
+            ('TEXTCOLOR', (0, 0), (0, -1), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('BACKGROUND', (1, 0), (1, -1), colors.HexColor('#F3F4F6')),
+        ]))
+        elementos.append(tabela_resumo)
+        elementos.append(Spacer(1, 20))
+        
+        # ===== RANKING DE USUÁRIOS =====
+        if ranking_ordenado:
+            elementos.append(Paragraph("<b><font size=14>👥 RANKING DE ABERTURAS</font></b>", styles['Heading3']))
+            elementos.append(Spacer(1, 10))
+            
+            dados_ranking = [['Usuário', 'Chamados Abertos']]
+            dados_ranking.extend(ranking_ordenado)
+            
+            tabela_ranking = Table(dados_ranking, colWidths=[200, 80])
+            tabela_ranking.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E40AF')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+                ('BACKGROUND', (1, 1), (1, -1), colors.HexColor('#F3F4F6')),
+            ]))
+            elementos.append(tabela_ranking)
+            elementos.append(Spacer(1, 20))
+        
+        # ===== CHAMADOS POR PRIORIDADE =====
+        if not prioridades.empty:
+            elementos.append(Paragraph("<b><font size=14>⚡ CHAMADOS POR PRIORIDADE</font></b>", styles['Heading3']))
+            elementos.append(Spacer(1, 10))
+            
+            cores_prioridade = {
+                'Alta': '#DC2626',
+                'Média': '#F59E0B',
+                'Baixa': '#10B981'
+            }
+            
+            dados_prioridade = [['Prioridade', 'Quantidade']]
+            for prioridade, qtd in prioridades.items():
+                dados_prioridade.append([f"{prioridade}", str(qtd)])
+            
+            tabela_prioridade = Table(dados_prioridade, colWidths=[120, 80])
+            tabela_prioridade.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E40AF')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ]))
+            elementos.append(tabela_prioridade)
+            elementos.append(Spacer(1, 20))
+        
+        # ===== LISTA DETALHADA =====
+        elementos.append(Paragraph("<b><font size=14>📋 LISTA DETALHADA DE CHAMADOS</font></b>", styles['Heading3']))
+        elementos.append(Spacer(1, 10))
+        
+        # Preparar dados da tabela detalhada
+        df_exibicao = df_mes[['id', 'created_at', 'laboratorio', 'descricao', 'prioridade']].copy()
+        df_exibicao['created_at'] = df_exibicao['created_at'].dt.strftime('%d/%m/%Y')
+        df_exibicao.columns = ['ID', 'Data', 'Laboratório', 'Descrição', 'Prioridade']
+        
+        # Limitar a 20 registros para não ficar muito grande
+        if len(df_exibicao) > 20:
+            df_exibicao = df_exibicao.head(20)
+            elementos.append(Paragraph("<i>* Mostrando os 20 primeiros chamados</i>", styles['Italic']))
+            elementos.append(Spacer(1, 5))
+        
+        # Converter para lista para o ReportLab
+        dados_tabela = [df_exibicao.columns.tolist()] + df_exibicao.values.tolist()
+        
+        # Calcular largura da tabela
+        largura_pagina = A4[0] - 2*cm
+        col_widths = [40, 70, 80, 200, 60]
+        
+        tabela_detalhada = Table(dados_tabela, colWidths=col_widths, repeatRows=1)
+        tabela_detalhada.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E40AF')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
+            ('FONTSIZE', (0, 1), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ]))
+        
+        elementos.append(tabela_detalhada)
+        elementos.append(Spacer(1, 20))
+        
+        # Rodapé
+        elementos.append(Paragraph("<i>Relatório gerado automaticamente pelo sistema Bithelp - GearTech Solutions</i>", styles['Italic']))
+        
+        # Gerar PDF
+        doc.build(elementos)
+        
+        return pdf_path    
 
     def carregar_historico():
         try:
@@ -768,7 +1000,13 @@ if sistema_login():
         st.markdown("Acompanhe o registro de auditoria em tempo real.")
         df_hist = carregar_historico()
         if not df_hist.empty:
-            df_hist['created_at'] = pd.to_datetime(df_hist['created_at']).dt.tz_convert('America/Sao_Paulo')
+            # CORREÇÃO DO HORÁRIO (mesmo formato dos chamados)
+            df_hist['created_at'] = pd.to_datetime(df_hist['created_at'])
+            if df_hist['created_at'].dt.tz is None:
+                df_hist['created_at'] = df_hist['created_at'].dt.tz_localize('UTC')
+            df_hist['created_at'] = df_hist['created_at'].dt.tz_convert('America/Sao_Paulo')
+            df_hist['created_at'] = df_hist['created_at'].dt.strftime('%d/%m/%Y - %H:%M:%S')
+            
             df_hist_exibir = df_hist[['created_at', 'usuario', 'perfil', 'acao', 'detalhes']].copy()
             df_hist_exibir.columns = ['Data/Hora', 'Operador', 'Nível de Acesso', 'Ação Executada', 'Detalhes Complementares']
             
@@ -777,6 +1015,50 @@ if sistema_login():
             st.download_button(label="📥 EMITIR E BAIXAR RELATÓRIO DE HISTÓRICO COMPLETO (CSV)", data=csv_hist_data, file_name='relatorio_auditoria_bithelp.csv', use_container_width=True, type="primary")
         else:
             st.info("Nenhuma ação gravada no histórico ainda.")
+            
+    @st.dialog("📊 Gerar Relatório Gerencial", width="large")
+    def modal_relatorio_pdf():
+        st.markdown("### Selecione o período para o relatório")
+        
+        col_mes, col_ano = st.columns(2)
+        with col_mes:
+            from datetime import datetime
+            mes_selecionado = st.selectbox(
+                "Mês", 
+                options=list(range(1, 13)),
+                format_func=lambda x: datetime(2000, x, 1).strftime('%B').capitalize(),
+                index=datetime.now().month - 1
+            )
+        with col_ano:
+            ano_selecionado = st.number_input("Ano", min_value=2024, max_value=2030, value=datetime.now().year)
+        
+        st.markdown("---")
+        
+        if st.button("✅ GERAR RELATÓRIO PDF", use_container_width=True, type="primary"):
+            with st.spinner("Gerando relatório... Isso pode levar alguns segundos."):
+                pdf_path = gerar_relatorio_pdf(ano_selecionado, mes_selecionado)
+                
+                if pdf_path:
+                    with open(pdf_path, "rb") as f:
+                        pdf_data = f.read()
+                    
+                    import os
+                    os.unlink(pdf_path)
+                    
+                    nome_mes = datetime(ano_selecionado, mes_selecionado, 1).strftime('%B_%Y').lower()
+                    nome_arquivo = f"relatorio_chamados_{nome_mes}.pdf"
+                    
+                    st.success(f"✅ Relatório gerado com sucesso!")
+                    st.download_button(
+                        label="📥 BAIXAR RELATÓRIO PDF",
+                        data=pdf_data,
+                        file_name=nome_arquivo,
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                else:
+                    st.error(f"❌ Nenhum chamado encontrado")
+                    
 
     # --- ABA 1: DASHBOARD OTIMIZADA ---
     if aba_dash:
@@ -798,6 +1080,8 @@ if sistema_login():
             if f_status: df_filtrado = df_filtrado[df_filtrado["status"].isin(f_status)]
             if f_so: df_filtrado = df_filtrado[df_filtrado["sistema_operacional"].isin(f_so)]
             if f_familia: df_filtrado = df_filtrado[df_filtrado["familia_cpu"].isin(f_familia)]
+            
+            
 
             with st.container(key="painel_bi_container"):
                 st.markdown(f"""
@@ -859,6 +1143,7 @@ if sistema_login():
                         )
                         st.plotly_chart(fig_st_donut, use_container_width=True)
                         
+                        
                 with col_g_direita:
                     if not df_filtrado.empty:
                         so_data = df_filtrado["sistema_operacional"].value_counts().reset_index(name="qtd")
@@ -878,58 +1163,106 @@ if sistema_login():
                 col_g_infra, col_g_anomalias = st.columns([2.1, 1.9])
                 
                 with col_g_infra:
-                    if not df_filtrado.empty:
-                        df_criticos = df_filtrado[df_filtrado["status"] != "OK"]
-                        if not df_criticos.empty:
-                            lab_problemas = df_criticos.groupby(['laboratorio', 'status']).size().reset_index(name='qtd_maquinas')
-                            fig_lab_crit = px.bar(lab_problemas, x='laboratorio', y='qtd_maquinas', color='status', title="<b>VOLUME DE CHAMADOS & EQUIPAMENTOS PARADOS POR LAB</b>", color_discrete_map=mapa_cores_plotly)
-                            fig_lab_crit.update_layout(
-                                title_x=0.5, height=260, barmode='stack', bargap=0.35,
-                                margin=dict(t=35, b=5, l=5, r=5), showlegend=True,
-                                legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5, font=dict(size=10)),
-                                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
-                            )
-                            fig_lab_crit.update_xaxes(showgrid=False, title="Laboratórios")
-                            fig_lab_crit.update_yaxes(showgrid=False, title="Máquinas Necessitando Reparo")
-                            st.plotly_chart(fig_lab_crit, use_container_width=True)
-                        else:
-                            # === IMPLEMENTAÇÃO DO NOVO CARD DE SUCESSO DINÂMICO ===
-                            st.markdown(f"""
-                                <div style="
-                                    border: 3px dashed {cor_atual}; 
-                                    border-radius: 10px; 
-                                    padding: 40px 20px; 
-                                    text-align: center; 
-                                    background-color: {cor_secundaria}15;
-                                    margin-top: 25px;
-                                    height: 210px;
-                                    display: flex;
-                                    flex-direction: column;
-                                    justify-content: center;
-                                    align-items: center;
-                                ">
-                                    <span style="font-size: 2.5rem; margin-bottom: 10px;">✨</span>
-                                    <p style="margin:0; font-weight:700; font-size:1.1rem; color:{cor_atual}; text-transform: uppercase;">
-                                        Operação 100% Eficiente
-                                    </p>
-                                    <p style="margin:5px 0 0 0; color:inherit; font-size:1.0rem; font-weight: 500; opacity: 0.85;">
-                                        Excelente! Todas as máquinas nos laboratórios filtrados estão operacionais.
-                                    </p>
-                                </div>
-                            """, unsafe_allow_html=True)
+                    # GRÁFICO DE CHAMADOS POR MÊS
+                    df_chamados_total = carregar_chamados()
+                    
+                    if not df_chamados_total.empty:
+                        # Processar dados para gráfico mensal
+                        df_mensal = df_chamados_total.copy()
+                        df_mensal['created_at'] = pd.to_datetime(df_mensal['created_at'])
+                        df_mensal['mes_ano'] = df_mensal['created_at'].dt.strftime('%b/%Y')
+                        df_mensal['data_ref'] = df_mensal['created_at'].dt.to_period('M')
+                        
+                        # Agrupar por mês
+                        df_agrupado = df_mensal.groupby(['mes_ano', 'data_ref']).size().reset_index(name='quantidade')
+                        df_agrupado = df_agrupado.sort_values('data_ref')
+                        
+                        # Criar gráfico de barras
+                        fig_chamados_mensal = px.bar(
+                            df_agrupado, 
+                            x='mes_ano', 
+                            y='quantidade',
+                            title="<b>EVOLUÇÃO MENSAL DE CHAMADOS ABERTOS</b>",
+                            text='quantidade',
+                            color_discrete_sequence=[cor_atual]
+                        )
+                        
+                        fig_chamados_mensal.update_traces(
+                            textposition='outside',
+                            marker_line_color=cor_secundaria,
+                            marker_line_width=1.5
+                        )
+                        
+                        fig_chamados_mensal.update_layout(
+                            height=260,
+                            margin=dict(t=35, b=25, l=5, r=5),
+                            title={'x': 0.5, 'xanchor': 'center'},
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            xaxis_title="Mês/Ano",
+                            yaxis_title="Quantidade de Chamados"
+                        )
+                        
+                        fig_chamados_mensal.update_xaxes(showgrid=False)
+                        fig_chamados_mensal.update_yaxes(showgrid=True, gridcolor='rgba(128,128,128,0.2)')
+                        
+                        st.plotly_chart(fig_chamados_mensal, use_container_width=True)
+                        
+                        # Adicionar métrica rápida de total
+                        total_chamados = len(df_chamados_total)
+                        st.caption(f"📊 Total acumulado: {total_chamados} chamados registrados")
+                        
+                    else:
+                        # Mensagem quando não há chamados
+                        st.markdown(f"""
+                            <div style="
+                                border: 3px dashed {cor_atual}; 
+                                border-radius: 10px; 
+                                padding: 40px 20px; 
+                                text-align: center; 
+                                background-color: {cor_secundaria}15;
+                                height: 260px;
+                                display: flex;
+                                flex-direction: column;
+                                justify-content: center;
+                                align-items: center;
+                            ">
+                                <span style="font-size: 2.5rem; margin-bottom: 10px;">📭</span>
+                                <p style="margin:0; font-weight:700; font-size:1.1rem; color:{cor_atual}; text-transform: uppercase;">
+                                    Nenhum chamado registrado
+                                </p>
+                                <p style="margin:5px 0 0 0; color:inherit; font-size:0.95rem; opacity: 0.85;">
+                                    Abra chamados para ver o histórico mensal
+                                </p>
+                            </div>
+                        """, unsafe_allow_html=True)                
                 
                 with col_g_anomalias:
                     st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>🚨 ATIVOS CRÍTICOS COM DIAGNÓSTICO DE FALHA</p>", unsafe_allow_html=True)
-                    df_falhas = df_filtrado[df_filtrado["anomalia"].notna() & (df_filtrado["anomalia"].astype(str).str.strip() != "") & (df_filtrado["anomalia"].astype(str).str.upper() != "NENHUMA") & (df_filtrado["anomalia"].astype(str).str.upper() != "NAN")]
+                    
+                    # Filtrar: tem anomalia E status não é OK
+                    df_falhas = df_filtrado[
+                        df_filtrado["anomalia"].notna() & 
+                        (df_filtrado["anomalia"].astype(str).str.strip() != "") & 
+                        (df_filtrado["anomalia"].astype(str).str.upper() != "NENHUMA") & 
+                        (df_filtrado["anomalia"].astype(str).str.upper() != "NAN") &
+                        (df_filtrado["status"].astype(str).str.upper() != "OK")
+                    ]
+                    
                     if not df_falhas.empty:
                         st.dataframe(
-                            df_falhas[["identificacao", "laboratorio", "anomalia", "status"]].rename(columns={"identificacao": "ID Computador", "laboratorio": "Laboratório", "anomalia": "Anomalia Detectada", "status": "Situação"}), 
+                            df_falhas[["identificacao", "laboratorio", "anomalia", "status"]].rename(columns={
+                                "identificacao": "ID Computador", 
+                                "laboratorio": "Laboratório", 
+                                "anomalia": "Anomalia Detectada", 
+                                "status": "Situação"
+                            }), 
                             use_container_width=True, 
                             hide_index=True,
                             height=200
                         )
                     else:
-                        st.markdown("<p style='text-align:center; color:gray; padding-top:40px;'>Nenhuma anomalia crítica relatada nos ativos filtrados.</p>", unsafe_allow_html=True)
+                        st.markdown("<p style='text-align:center; color:green; padding-top:40px;'>✅ Nenhuma anomalia ativa em máquinas com problema.</p>", unsafe_allow_html=True)
 
             st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
             if st.button("📋 Visualizar Tabela Completa de Dados (Pop-up)", use_container_width=True):
@@ -946,13 +1279,19 @@ if sistema_login():
                 if st.button("➕ REGISTRAR NOVO CHAMADO DE MANUTENÇÃO", use_container_width=True, type="primary"):
                     modal_abrir_chamado(df)
 
-    # --- ABA 3: GESTÃO DE CHAMADOS ---
+            # --- ABA 3: GESTÃO DE CHAMADOS ---
     if aba_gestao:
         with aba_gestao:
             st.markdown(f"<h3 style='text-align: center; color: {cor_atual};'>📋 Chamados Ativos</h3>", unsafe_allow_html=True)
             df_c = carregar_chamados()
             if not df_c.empty:
-                df_c['created_at'] = pd.to_datetime(df_c['created_at']).dt.tz_convert('America/Sao_Paulo')
+                # CORREÇÃO DO HORÁRIO
+                df_c['created_at'] = pd.to_datetime(df_c['created_at'])
+                if df_c['created_at'].dt.tz is None:
+                    df_c['created_at'] = df_c['created_at'].dt.tz_localize('UTC')
+                df_c['created_at'] = df_c['created_at'].dt.tz_convert('America/Sao_Paulo')
+                df_c['created_at'] = df_c['created_at'].dt.strftime('%d/%m/%Y       %H:%M:%S')
+                
                 def rotular_prioridade(p): return {"Baixa": "🔵 Baixa", "Média": "🟡 Média", "Alta": "🔴 Alta"}.get(p, p)
                 df_c['Máquina'] = df_c['maquinas'].apply(lambda x: x['identificacao'] if isinstance(x, dict) else "N/A")
                 df_c['Prioridade Visual'] = df_c['prioridade'].apply(rotular_prioridade)
@@ -967,7 +1306,6 @@ if sistema_login():
                             info_chamado = exibir[exibir['ID'] == id_excluir]
                             comp_ref = info_chamado['Computador'].iloc[0] if not info_chamado.empty else "N/A"
                             supabase.table("chamados").delete().eq("id", id_excluir).execute()
-                            registrar_historico("FINALIZAR CHAMADO", f"Deu baixa resolvida no chamado ID {id_excluir} da máquina {comp_ref}")
                             st.toast(f"Chamado {id_excluir} finalizado!", icon='✅')
                             st.rerun()
             else: 
@@ -979,9 +1317,21 @@ if sistema_login():
             st.markdown(f"<h3 style='text-align: center; color: {cor_atual};'>⚙️ Painel Administrativo</h3>", unsafe_allow_html=True)
             c_btn1, c_btn2 = st.columns(2)
             with c_btn1:
-                if st.button("👥 Cadastro de Usuários", use_container_width=True, type="secondary"): modal_gestao_usuarios()
-                if st.button("⚡ Atualização de Status de Chamados", use_container_width=True, type="secondary"): modal_status_expresso()
-                if st.button("📋 Central de Relatórios & Auditoria", use_container_width=True, type="secondary"): modal_central_relatorios()
+                if st.button("👥 Cadastro de Usuários", use_container_width=True, type="secondary"): 
+                    modal_gestao_usuarios()
+                
+                if st.button("⚡ Atualização de Status de Chamados", use_container_width=True, type="secondary"): 
+                    modal_status_expresso()
+                
+                if st.button("📊 Relatório Gerencial em PDF", use_container_width=True, type="secondary"):
+                    modal_relatorio_pdf()
+            
             with c_btn2:
-                if st.button("📥 Importação e Exportação de Planilhas (CSV)", use_container_width=True, type="secondary"): modal_planilhas()
-                if st.button("➕ Cadastro e Edição de Máquinas", use_container_width=True, type="primary"): modal_formulario_completo()
+                if st.button("📥 Importação e Exportação de Planilhas (CSV)", use_container_width=True, type="secondary"): 
+                    modal_planilhas()
+                
+                if st.button("📋 Registro de Logs", use_container_width=True, type="secondary"): 
+                    modal_central_relatorios()
+                
+                if st.button("➕ Cadastro e Edição de Máquinas", use_container_width=True, type="primary"): 
+                    modal_formulario_completo()
