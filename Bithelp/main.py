@@ -637,9 +637,9 @@ if sistema_login():
             border-style: none !important;
         }}
         .stTabs [data-baseweb="tab"] {{
-            font-size: 1.4rem !important;
+            font-size: 3.0rem !important;
             font-weight: 700 !important;
-            padding: 10px 20px !important;
+            padding: 18px 36px !important;
             background-color: transparent !important;
             border-style: none !important;
         }}
@@ -1102,7 +1102,7 @@ if sistema_login():
                 with col_kpi2:
                     ativos_parados = len(df_filtrado[df_filtrado["status"] != "OK"])
                     pct_parados = (ativos_parados / total_ativos * 100) if total_ativos > 0 else 0
-                    st.markdown(f'<div class="metric-card"><div class="metric-title">Taxa de Parada Crítica</div><div class="metric-value" style="color: #DC2626;">{ativos_parados} <span style="font-size:1.0rem; font-weight:normal;">({pct_parados:.1f}%)</span></div></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="metric-card"><div class="metric-title">Fora de Conformidade</div><div class="metric-value" style="color: #DC2626;">{ativos_parados} <span style="font-size:1.0rem; font-weight:normal;">({pct_parados:.1f}%)</span></div></div>', unsafe_allow_html=True)
                 
                 with col_kpi3:
                     legado_count = len(df_filtrado[df_filtrado["geracao"].isin(["1ª", "2ª"])])
@@ -1116,43 +1116,61 @@ if sistema_login():
 
                 # --- MIX DE GRÁFICOS EM 3 COLUNAS ---
                 col_g_esquerda, col_g_centro, col_g_direita = st.columns([1.3, 1.3, 1.4])
-                
+               
+               # GRÁFICO DE GERAÇÃO CPU 
                 with col_g_esquerda:
                     if not df_filtrado.empty:
                         geracao_counts = df_filtrado[df_filtrado["geracao"] != ""].value_counts("geracao").reset_index(name="qtd")
                         fig_ger = px.bar(geracao_counts, x="geracao", y="qtd", title="<b>MATRIZ DE OBSOLESCÊNCIA (GERAÇÃO CPU)</b>")
-                        fig_ger.update_traces(marker_color=cor_atual, texttemplate='%{y}', textposition='outside')
-                        fig_ger.update_layout(
-                            showlegend=False, height=270, margin=dict(t=35, b=5, l=5, r=5),
-                            title={'x': 0.5, 'xanchor': 'center'},
-                            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
+                        fig_ger.update_traces(
+                            marker_color=cor_atual, 
+                            texttemplate='%{y}', 
+                            textposition='inside',  # 👈 MUDOU para inside
+                            textfont=dict(size=13, color="white")  # 👈 Fonte branca para contraste
                         )
-                        fig_ger.update_xaxes(showgrid=False, title="Geração")
-                        fig_ger.update_yaxes(showgrid=False, title="")
+                        fig_ger.update_layout(
+                            showlegend=False, 
+                            height=270, 
+                            margin=dict(t=35, b=5, l=5, r=5),
+                            title={'x': 0.5, 'xanchor': 'center'},
+                            paper_bgcolor='rgba(0,0,0,0)', 
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            yaxis=dict(visible=False),  # 👈 Remove eixo Y
+                            xaxis=dict(title="Geração")
+                        )
+                        fig_ger.update_xaxes(showgrid=False)
+                        fig_ger.update_yaxes(showgrid=False, visible=False)
                         st.plotly_chart(fig_ger, use_container_width=True)
 
+                # GRÁFICO DE STATUS OPERACIONAL (DONUT) - Gráfico de Rosca
                 with col_g_centro:
                     if not df_filtrado.empty:
                         status_counts = df_filtrado["status"].value_counts().reset_index(name="qtd")
                         fig_st_donut = px.pie(status_counts, values='qtd', names='status', hole=0.5, title="<b>SAÚDE DA FROTA (STATUS OPERACIONAL)</b>", color='status', color_discrete_map=mapa_cores_plotly)
-                        fig_st_donut.update_layout(
-                            showlegend=True, height=270, margin=dict(t=35, b=5, l=5, r=5),
-                            title={'x': 0.5, 'xanchor': 'center'},
-                            legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(size=10)),
-                            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
-                        )
+                        fig_st_donut.update_traces(textfont=dict(size=16, color="white"), textinfo='percent', hovertemplate='<b>Status: %{label}</b><br>Quantidade: %{value}<br>Percentual: %{percent:.1f}%<extra></extra>')
+                        fig_st_donut.update_layout(showlegend=True, height=270, margin=dict(t=35, b=5, l=5, r=5), title={'x': 0.5, 'xanchor': 'center'}, legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(size=14)), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                         st.plotly_chart(fig_st_donut, use_container_width=True)
                         
-                        
+               # GRÁFICO DE CONVÊNIO DE SISTEMAS OPERACIONAIS - Gráfico de Barras        
                 with col_g_direita:
                     if not df_filtrado.empty:
                         so_data = df_filtrado["sistema_operacional"].value_counts().reset_index(name="qtd")
                         fig_so = px.bar(so_data, x='qtd', y='sistema_operacional', orientation='h', text_auto=True, title="<b>CONVÊNIO DE SISTEMAS OPERACIONAIS</b>")
-                        fig_so.update_traces(marker_color=cor_secundaria, textposition="inside")
+                        fig_so.update_traces(
+                            marker_color=cor_atual,  # 👈 MUDOU de cor_secundaria para cor_atual
+                            textposition="inside",
+                            textfont=dict(size=13, color="white"),
+                            hovertemplate='<b>SO: %{y}</b><br>Quantidade: %{x}<extra></extra>'
+                        )
                         fig_so.update_layout(
-                            title_x=0.5, height=270, bargap=0.35,
+                            title_x=0.5, 
+                            height=270, 
+                            bargap=0.35,
                             margin=dict(t=35, b=5, l=5, r=5), 
-                            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
+                            paper_bgcolor='rgba(0,0,0,0)', 
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            xaxis=dict(visible=False),  # 👈 REMOVE OS NÚMEROS 0,10,20
+                            yaxis=dict(title="")
                         ) 
                         fig_so.update_xaxes(showgrid=False, title="")
                         fig_so.update_yaxes(showgrid=False, title="")
@@ -1162,6 +1180,7 @@ if sistema_login():
                 st.markdown("<hr style='margin: 15px 0; border-color: rgba(128,128,128,0.2);'>", unsafe_allow_html=True)
                 col_g_infra, col_g_anomalias = st.columns([2.1, 1.9])
                 
+                # GRÁFICO DE CHAMADOS POR MÊS (LINHA DO TEMPO) - Gráfico de Colunas
                 with col_g_infra:
                     # GRÁFICO DE CHAMADOS POR MÊS
                     df_chamados_total = carregar_chamados()
@@ -1170,7 +1189,23 @@ if sistema_login():
                         # Processar dados para gráfico mensal
                         df_mensal = df_chamados_total.copy()
                         df_mensal['created_at'] = pd.to_datetime(df_mensal['created_at'])
+                        
+                        # Dicionário para converter meses para português
+                        meses_pt = {
+                            'Jan': 'Jan', 'Feb': 'Fev', 'Mar': 'Mar', 'Apr': 'Abr',
+                            'May': 'Mai', 'Jun': 'Jun', 'Jul': 'Jul', 'Aug': 'Ago',
+                            'Sep': 'Set', 'Oct': 'Out', 'Nov': 'Nov', 'Dec': 'Dez'
+                        }
+                        
+                        # Criar mês/ano com nome em português
+                        df_mensal['mes_num'] = df_mensal['created_at'].dt.month
+                        df_mensal['ano'] = df_mensal['created_at'].dt.year
                         df_mensal['mes_ano'] = df_mensal['created_at'].dt.strftime('%b/%Y')
+                        
+                        # Substituir nome do mês por português
+                        for en, pt in meses_pt.items():
+                            df_mensal['mes_ano'] = df_mensal['mes_ano'].str.replace(en, pt)
+                        
                         df_mensal['data_ref'] = df_mensal['created_at'].dt.to_period('M')
                         
                         # Agrupar por mês
@@ -1188,9 +1223,10 @@ if sistema_login():
                         )
                         
                         fig_chamados_mensal.update_traces(
-                            textposition='outside',
+                            textposition='inside',  # 👈 MUDOU para inside (dentro da barra)
                             marker_line_color=cor_secundaria,
-                            marker_line_width=1.5
+                            marker_line_width=1.5,
+                            textfont=dict(size=13, color="white")  # 👈 Fonte branca para contraste
                         )
                         
                         fig_chamados_mensal.update_layout(
@@ -1199,12 +1235,14 @@ if sistema_login():
                             title={'x': 0.5, 'xanchor': 'center'},
                             paper_bgcolor='rgba(0,0,0,0)',
                             plot_bgcolor='rgba(0,0,0,0)',
-                            xaxis_title="Mês/Ano",
-                            yaxis_title="Quantidade de Chamados"
+                            xaxis_title="",
+                            yaxis_title="",
+                            xaxis=dict(showgrid=False),
+                            yaxis=dict(showgrid=False, visible=False)  # 👈 REMOVE o eixo Y (números 0, 0.5, 1)
                         )
                         
                         fig_chamados_mensal.update_xaxes(showgrid=False)
-                        fig_chamados_mensal.update_yaxes(showgrid=True, gridcolor='rgba(128,128,128,0.2)')
+                        fig_chamados_mensal.update_yaxes(showgrid=False, visible=False)  # 👈 GARANTE REMOÇÃO
                         
                         st.plotly_chart(fig_chamados_mensal, use_container_width=True)
                         
@@ -1235,7 +1273,7 @@ if sistema_login():
                                     Abra chamados para ver o histórico mensal
                                 </p>
                             </div>
-                        """, unsafe_allow_html=True)                
+                        """, unsafe_allow_html=True)          
                 
                 with col_g_anomalias:
                     st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>🚨 ATIVOS CRÍTICOS COM DIAGNÓSTICO DE FALHA</p>", unsafe_allow_html=True)
