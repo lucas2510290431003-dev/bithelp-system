@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  front-app:
+    build: .
+    container_name: nome-do-container
+    restart: always
+    ports:
+      - "8501:8501" # verificar quais portas precisarão estar disponíveis
+    environment:
+      # Defina aqui as credenciais do seu projeto Supabase se o seu código as ler do ambiente:
+      - SUPABASE_URL="https://rttcmxsvhjhcfrzbhwtm.supabase.co"
+      - SUPABASE_KEY="sb_publishable_Pss3H5MunB_Ioc2t8y66pg_WKVFxRyP"
+    volumes:
+      - .:/app
