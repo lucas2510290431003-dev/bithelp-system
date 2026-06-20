@@ -3,7 +3,14 @@ import pandas as pd
 import plotly.express as px
 import os
 from supabase import create_client
-
+import locale
+try:
+    locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
+except:
+    try:
+        locale.setlocale(locale.LC_TIME, 'portuguese')
+    except:
+        pass
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
     page_title="Bithelp - GearTech Solutions",
@@ -198,16 +205,48 @@ if sistema_login():
             spaceAfter=30
         )
         
-        # Cabeçalho
-        elementos.append(Paragraph("BITHELP - GEARTECH SOLUTIONS", titulo_style))
-        elementos.append(Paragraph(f"RELATÓRIO GERENCIAL DE CHAMADOS", subtitulo_style))
+                # ===== CABEÇALHO COM LOGO =====
+        from reportlab.lib import utils
+        
+        # Título e subtítulo (serão colocados na esquerda)
+        titulo = Paragraph("BITHELP <br/>GEARTECH SOLUTIONS", titulo_style)
+        subtitulo = Paragraph(f"RELATÓRIO GERENCIAL DE CHAMADOS", subtitulo_style)
+        
+        # Tentar carregar a logo
+        logo_path = "bithelplogo.png"
+        logo_elemento = ""
+        
+        try:
+            if os.path.exists(logo_path):
+                from reportlab.platypus import Image
+                logo_elemento = Image(logo_path, width=70, height=60)
+        except:
+            logo_elemento = ""
+        
+        # Criar tabela para alinhar: texto à esquerda, logo à direita
+        dados_cabecalho = [
+            [titulo, logo_elemento],
+            [subtitulo, ""]
+        ]
+        
+        cabecalho_tabela = Table(dados_cabecalho, colWidths=[400, 100])
+        cabecalho_tabela.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('ALIGN', (0, 0), (0, 1), 'LEFT'),
+            ('ALIGN', (1, 0), (1, 1), 'RIGHT'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ]))
+        
+        elementos.append(cabecalho_tabela)
+        elementos.append(Spacer(1, 10))
         
         nome_mes = datetime(ano, mes, 1).strftime('%B/%Y').capitalize()
         elementos.append(Paragraph(f"<b>Mês de Referência:</b> {nome_mes}", styles['Normal']))
         elementos.append(Paragraph(f"<b>Data de Geração:</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
         elementos.append(Spacer(1, 20))
         
-        # ===== RESUMO GERAL =====
+                # ===== RESUMO GERAL =====
         elementos.append(Paragraph("<b><font size=14>📊 RESUMO GERAL</font></b>", styles['Heading3']))
         elementos.append(Spacer(1, 10))
         
@@ -218,11 +257,11 @@ if sistema_login():
             ['Em Aberto', str(total_chamados - chamados_resolvidos)],
         ]
         
-        tabela_resumo = Table(dados_resumo, colWidths=[120, 80])
+        tabela_resumo = Table(dados_resumo, colWidths=[150, 80])
         tabela_resumo.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#1E40AF')),
             ('TEXTCOLOR', (0, 0), (0, -1), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 0), (-1, -1), 11),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
@@ -230,10 +269,17 @@ if sistema_login():
             ('GRID', (0, 0), (-1, -1), 1, colors.grey),
             ('BACKGROUND', (1, 0), (1, -1), colors.HexColor('#F3F4F6')),
         ]))
-        elementos.append(tabela_resumo)
+        
+        # Envolver a tabela em uma tabela maior para alinhar à esquerda
+        tabela_alinhada = Table([[tabela_resumo]], colWidths=[400])
+        tabela_alinhada.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ]))
+        elementos.append(tabela_alinhada)
         elementos.append(Spacer(1, 20))
         
-        # ===== RANKING DE USUÁRIOS =====
+                # ===== RANKING DE USUÁRIOS =====
         if ranking_ordenado:
             elementos.append(Paragraph("<b><font size=14>👥 RANKING DE ABERTURAS</font></b>", styles['Heading3']))
             elementos.append(Spacer(1, 10))
@@ -241,11 +287,11 @@ if sistema_login():
             dados_ranking = [['Usuário', 'Chamados Abertos']]
             dados_ranking.extend(ranking_ordenado)
             
-            tabela_ranking = Table(dados_ranking, colWidths=[200, 80])
+            tabela_ranking = Table(dados_ranking, colWidths=[200, 110])
             tabela_ranking.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E40AF')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0, 0), (-1, -1), 10),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
@@ -253,19 +299,20 @@ if sistema_login():
                 ('GRID', (0, 0), (-1, -1), 1, colors.grey),
                 ('BACKGROUND', (1, 1), (1, -1), colors.HexColor('#F3F4F6')),
             ]))
-            elementos.append(tabela_ranking)
+            
+            # Envolver a tabela em uma tabela maior para alinhar à esquerda
+            tabela_alinhada = Table([[tabela_ranking]], colWidths=[400])
+            tabela_alinhada.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ]))
+            elementos.append(tabela_alinhada)
             elementos.append(Spacer(1, 20))
         
-        # ===== CHAMADOS POR PRIORIDADE =====
+                # ===== CHAMADOS POR PRIORIDADE =====
         if not prioridades.empty:
             elementos.append(Paragraph("<b><font size=14>⚡ CHAMADOS POR PRIORIDADE</font></b>", styles['Heading3']))
             elementos.append(Spacer(1, 10))
-            
-            cores_prioridade = {
-                'Alta': '#DC2626',
-                'Média': '#F59E0B',
-                'Baixa': '#10B981'
-            }
             
             dados_prioridade = [['Prioridade', 'Quantidade']]
             for prioridade, qtd in prioridades.items():
@@ -275,19 +322,26 @@ if sistema_login():
             tabela_prioridade.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E40AF')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0, 0), (-1, -1), 10),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
                 ('TOPPADDING', (0, 0), (-1, -1), 6),
                 ('GRID', (0, 0), (-1, -1), 1, colors.grey),
             ]))
-            elementos.append(tabela_prioridade)
+            
+            # Envolver a tabela em uma tabela maior para alinhar à esquerda
+            tabela_alinhada = Table([[tabela_prioridade]], colWidths=[400])
+            tabela_alinhada.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ]))
+            elementos.append(tabela_alinhada)
             elementos.append(Spacer(1, 20))
         
-        # ===== LISTA DETALHADA =====
+                # ===== LISTA DETALHADA =====
         elementos.append(Paragraph("<b><font size=14>📋 LISTA DETALHADA DE CHAMADOS</font></b>", styles['Heading3']))
-        elementos.append(Spacer(1, 10))
+        elementos.append(Spacer(1, 5))  # 👈 REDUZI de 10 para 5
         
         # Preparar dados da tabela detalhada
         df_exibicao = df_mes[['id', 'created_at', 'laboratorio', 'descricao', 'prioridade']].copy()
@@ -298,38 +352,37 @@ if sistema_login():
         if len(df_exibicao) > 20:
             df_exibicao = df_exibicao.head(20)
             elementos.append(Paragraph("<i>* Mostrando os 20 primeiros chamados</i>", styles['Italic']))
-            elementos.append(Spacer(1, 5))
+            elementos.append(Spacer(1, 3))  # 👈 REDUZI
         
         # Converter para lista para o ReportLab
         dados_tabela = [df_exibicao.columns.tolist()] + df_exibicao.values.tolist()
         
         # Calcular largura da tabela
         largura_pagina = A4[0] - 2*cm
-        col_widths = [40, 70, 80, 200, 60]
+        col_widths = [40, 70, 60, 200, 60]
         
         tabela_detalhada = Table(dados_tabela, colWidths=col_widths, repeatRows=1)
         tabela_detalhada.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E40AF')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('FONTSIZE', (0, 1), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('FONTSIZE', (0, 0), (-1, 0), 8),
+            ('FONTSIZE', (0, 1), (-1, -1), 7),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),  # 👈 REDUZI de 5 para 3
+            ('TOPPADDING', (0, 0), (-1, -1), 3),     # 👈 REDUZI de 5 para 3
             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ]))
         
         elementos.append(tabela_detalhada)
-        elementos.append(Spacer(1, 20))
+        elementos.append(Spacer(1, 5))  # 👈 REDUZI de 20 para 5
         
         # Rodapé
         elementos.append(Paragraph("<i>Relatório gerado automaticamente pelo sistema Bithelp - GearTech Solutions</i>", styles['Italic']))
         
         # Gerar PDF
         doc.build(elementos)
-        
         return pdf_path    
 
     def carregar_historico():
@@ -745,19 +798,27 @@ if sistema_login():
                 except Exception as e:
                     st.sidebar.error(f"Erro ao limpar: {e}")
 
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("<p style='text-align: center; font-weight: bold; margin-bottom: 5px;'>Filtros do Inventário</p>", unsafe_allow_html=True)
-    def criar_filtro(label, column_name):
-        if column_name in df.columns:
-            opcoes = sorted([str(x) for x in df[column_name].dropna().unique() if str(x).strip() != ""])
-            return st.sidebar.multiselect(label, options=opcoes, default=opcoes)
-        return []
+        # --- FILTROS DO DASHBOARD (APENAS PARA ADMINISTRADOR) ---
+    if st.session_state.perfil == "Administrador":
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("<p style='text-align: center; font-weight: bold; margin-bottom: 5px;'>Filtros do Inventário</p>", unsafe_allow_html=True)
+        def criar_filtro(label, column_name):
+            if column_name in df.columns:
+                opcoes = sorted([str(x) for x in df[column_name].dropna().unique() if str(x).strip() != ""])
+                return st.sidebar.multiselect(label, options=opcoes, default=opcoes)
+            return []
 
-    f_lab = criar_filtro("Laboratório", "laboratorio")
-    f_status = criar_filtro("Status da Máquina", "status")
-    f_so = criar_filtro("Sistema Operacional", "sistema_operacional")
-    f_familia = criar_filtro("Família CPU", "familia_cpu")
-
+        f_lab = criar_filtro("Laboratório", "laboratorio")
+        f_status = criar_filtro("Status da Máquina", "status")
+        f_so = criar_filtro("Sistema Operacional", "sistema_operacional")
+        f_familia = criar_filtro("Família CPU", "familia_cpu")
+    else:
+        # Usuários não-admin não têm filtros (valores vazios)
+        f_lab = []
+        f_status = []
+        f_so = []
+        f_familia = []
+    
     st.sidebar.markdown("---")
     if st.sidebar.button("Sair / Logout", use_container_width=True):
         registrar_historico("LOGOUT", "Usuário encerrou a sessão")
@@ -1020,13 +1081,20 @@ if sistema_login():
     def modal_relatorio_pdf():
         st.markdown("### Selecione o período para o relatório")
         
+        # Dicionário com meses em português (corrigido manualmente)
+        meses_pt = {
+            1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
+            5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
+            9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
+        }
+        
         col_mes, col_ano = st.columns(2)
         with col_mes:
             from datetime import datetime
             mes_selecionado = st.selectbox(
                 "Mês", 
                 options=list(range(1, 13)),
-                format_func=lambda x: datetime(2000, x, 1).strftime('%B').capitalize(),
+                format_func=lambda x: meses_pt[x],  # 👈 USA O DICIONÁRIO
                 index=datetime.now().month - 1
             )
         with col_ano:
@@ -1045,8 +1113,8 @@ if sistema_login():
                     import os
                     os.unlink(pdf_path)
                     
-                    nome_mes = datetime(ano_selecionado, mes_selecionado, 1).strftime('%B_%Y').lower()
-                    nome_arquivo = f"relatorio_chamados_{nome_mes}.pdf"
+                    nome_mes = meses_pt[mes_selecionado].lower()
+                    nome_arquivo = f"relatorio_chamados_{nome_mes}_{ano_selecionado}.pdf"
                     
                     st.success(f"✅ Relatório gerado com sucesso!")
                     st.download_button(
@@ -1057,7 +1125,7 @@ if sistema_login():
                         use_container_width=True
                     )
                 else:
-                    st.error(f"❌ Nenhum chamado encontrado")
+                    st.error(f"❌ Nenhum chamado encontrado para {meses_pt[mes_selecionado]}/{ano_selecionado}")
                     
 
     # --- ABA 1: DASHBOARD OTIMIZADA ---
@@ -1121,12 +1189,12 @@ if sistema_login():
                 with col_g_esquerda:
                     if not df_filtrado.empty:
                         geracao_counts = df_filtrado[df_filtrado["geracao"] != ""].value_counts("geracao").reset_index(name="qtd")
-                        fig_ger = px.bar(geracao_counts, x="geracao", y="qtd", title="<b>MATRIZ DE OBSOLESCÊNCIA (GERAÇÃO CPU)</b>")
+                        fig_ger = px.bar(geracao_counts, x="geracao", y="qtd", title="<b>MATRIZ DE OBSOLESCÊNCIA DE CPU</b>")
                         fig_ger.update_traces(
                             marker_color=cor_atual, 
                             texttemplate='%{y}', 
                             textposition='inside',  # 👈 MUDOU para inside
-                            textfont=dict(size=13, color="white")  # 👈 Fonte branca para contraste
+                            textfont=dict(size=15, color="white")  # 👈 Fonte branca para contraste
                         )
                         fig_ger.update_layout(
                             showlegend=False, 
@@ -1146,8 +1214,8 @@ if sistema_login():
                 with col_g_centro:
                     if not df_filtrado.empty:
                         status_counts = df_filtrado["status"].value_counts().reset_index(name="qtd")
-                        fig_st_donut = px.pie(status_counts, values='qtd', names='status', hole=0.5, title="<b>SAÚDE DA FROTA (STATUS OPERACIONAL)</b>", color='status', color_discrete_map=mapa_cores_plotly)
-                        fig_st_donut.update_traces(textfont=dict(size=16, color="white"), textinfo='percent', hovertemplate='<b>Status: %{label}</b><br>Quantidade: %{value}<br>Percentual: %{percent:.1f}%<extra></extra>')
+                        fig_st_donut = px.pie(status_counts, values='qtd', names='status', hole=0.5, title="<b>STATUS OPERACIONAL GERAL</b>", color='status', color_discrete_map=mapa_cores_plotly)
+                        fig_st_donut.update_traces(textfont=dict(size=15, color="white"), textinfo='percent', hovertemplate='<b>Status: %{label}</b><br>Quantidade: %{value}<br>Percentual: %{percent:.1f}%<extra></extra>')
                         fig_st_donut.update_layout(showlegend=True, height=270, margin=dict(t=35, b=5, l=5, r=5), title={'x': 0.5, 'xanchor': 'center'}, legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(size=14)), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                         st.plotly_chart(fig_st_donut, use_container_width=True)
                         
@@ -1155,11 +1223,11 @@ if sistema_login():
                 with col_g_direita:
                     if not df_filtrado.empty:
                         so_data = df_filtrado["sistema_operacional"].value_counts().reset_index(name="qtd")
-                        fig_so = px.bar(so_data, x='qtd', y='sistema_operacional', orientation='h', text_auto=True, title="<b>CONVÊNIO DE SISTEMAS OPERACIONAIS</b>")
+                        fig_so = px.bar(so_data, x='qtd', y='sistema_operacional', orientation='h', text_auto=True, title="<b>DISTRIBUIÇÃO SO</b>")
                         fig_so.update_traces(
                             marker_color=cor_atual,  # 👈 MUDOU de cor_secundaria para cor_atual
                             textposition="inside",
-                            textfont=dict(size=13, color="white"),
+                            textfont=dict(size=15, color="white"),
                             hovertemplate='<b>SO: %{y}</b><br>Quantidade: %{x}<extra></extra>'
                         )
                         fig_so.update_layout(
@@ -1217,7 +1285,7 @@ if sistema_login():
                             df_agrupado, 
                             x='mes_ano', 
                             y='quantidade',
-                            title="<b>EVOLUÇÃO MENSAL DE CHAMADOS ABERTOS</b>",
+                            title="<b>CHAMADOS MENSAIS ABERTOS</b>",
                             text='quantidade',
                             color_discrete_sequence=[cor_atual]
                         )
@@ -1226,7 +1294,7 @@ if sistema_login():
                             textposition='inside',  # 👈 MUDOU para inside (dentro da barra)
                             marker_line_color=cor_secundaria,
                             marker_line_width=1.5,
-                            textfont=dict(size=13, color="white")  # 👈 Fonte branca para contraste
+                            textfont=dict(size=15, color="white")  # 👈 Fonte branca para contraste
                         )
                         
                         fig_chamados_mensal.update_layout(
@@ -1276,7 +1344,7 @@ if sistema_login():
                         """, unsafe_allow_html=True)          
                 
                 with col_g_anomalias:
-                    st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>🚨 ATIVOS CRÍTICOS COM DIAGNÓSTICO DE FALHA</p>", unsafe_allow_html=True)
+                    st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>ATIVOS CRÍTICOS COM DIAGNÓSTICO DE FALHA</p>", unsafe_allow_html=True)
                     
                     # Filtrar: tem anomalia E status não é OK
                     df_falhas = df_filtrado[
