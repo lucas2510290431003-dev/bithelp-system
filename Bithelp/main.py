@@ -809,7 +809,9 @@ if sistema_login():
             return []
 
         f_lab = criar_filtro("Laboratório", "laboratorio")
-        f_status = criar_filtro("Status da Máquina", "status")
+        # Cria uma lista fixa com apenas as duas opções
+        opcoes_status = ["OK", "Pendente de Manutenção"]
+        f_status = st.sidebar.multiselect("Status da Máquina", options=opcoes_status, default=opcoes_status)
         f_so = criar_filtro("Sistema Operacional", "sistema_operacional")
         f_familia = criar_filtro("Família CPU", "familia_cpu")
     else:
@@ -1056,24 +1058,51 @@ if sistema_login():
                     st.toast("Removido!", icon='🗑️')
                     st.rerun()
 
+    # Central de Relatórios e Histórico de Auditoria (Modal)
     @st.dialog("📋 Central de Relatórios & Histórico de Auditoria", width="large")
     def modal_central_relatorios():
         st.markdown("Acompanhe o registro de auditoria em tempo real.")
+        
+        # Adicionar seletor de ordenação
+        col_ord1, col_ord2 = st.columns([1, 3])
+        with col_ord1:
+            ordem = st.radio(
+                "Ordenar por Data",
+                options=["Mais Recente", "Mais Antigo"],
+                index=0,
+                horizontal=True
+            )
+        
         df_hist = carregar_historico()
         if not df_hist.empty:
-            # CORREÇÃO DO HORÁRIO (mesmo formato dos chamados)
+            # CORREÇÃO DO HORÁRIO (MANTER COMO DATETIME PARA ORDENAR)
             df_hist['created_at'] = pd.to_datetime(df_hist['created_at'])
             if df_hist['created_at'].dt.tz is None:
                 df_hist['created_at'] = df_hist['created_at'].dt.tz_localize('UTC')
             df_hist['created_at'] = df_hist['created_at'].dt.tz_convert('America/Sao_Paulo')
+            
+            # 👇 ORDENAR ANTES DE CONVERTER PARA STRING
+            if ordem == "Mais Recente":
+                df_hist = df_hist.sort_values(by='created_at', ascending=False)
+            else:
+                df_hist = df_hist.sort_values(by='created_at', ascending=True)
+            
+            # 👇 AGORA CONVERTER PARA STRING (DEPOIS DE ORDENAR)
             df_hist['created_at'] = df_hist['created_at'].dt.strftime('%d/%m/%Y - %H:%M:%S')
             
             df_hist_exibir = df_hist[['created_at', 'usuario', 'perfil', 'acao', 'detalhes']].copy()
             df_hist_exibir.columns = ['Data/Hora', 'Operador', 'Nível de Acesso', 'Ação Executada', 'Detalhes Complementares']
             
-            st.dataframe(df_hist_exibir.sort_values(by='Data/Hora', ascending=False), use_container_width=True, hide_index=True)
+            st.dataframe(df_hist_exibir, use_container_width=True, hide_index=True)
+            
             csv_hist_data = df_hist_exibir.to_csv(index=False).encode('utf-8-sig')
-            st.download_button(label="📥 EMITIR E BAIXAR RELATÓRIO DE HISTÓRICO COMPLETO (CSV)", data=csv_hist_data, file_name='relatorio_auditoria_bithelp.csv', use_container_width=True, type="primary")
+            st.download_button(
+                label="📥 EMITIR E BAIXAR RELATÓRIO DE HISTÓRICO COMPLETO (CSV)",
+                data=csv_hist_data,
+                file_name='relatorio_auditoria_bithelp.csv',
+                use_container_width=True,
+                type="primary"
+            )
         else:
             st.info("Nenhuma ação gravada no histórico ainda.")
             
@@ -1177,8 +1206,13 @@ if sistema_login():
                     st.markdown(f'<div class="metric-card"><div class="metric-title">Máquinas Obsoletas</div><div class="metric-value" style="color: {cor_atual};">{legado_count} un</div></div>', unsafe_allow_html=True)
                 
                 with col_kpi4:
-                    anomalias_reais = len(df_filtrado[(df_filtrado["anomalia"] != "") & (df_filtrado["anomalia"].str.upper() != "NENHUMA") & (df_filtrado["anomalia"].str.upper() != "NAN")])
-                    st.markdown(f'<div class="metric-card"><div class="metric-title">Alertas de Anomalia</div><div class="metric-value" style="color: #FF8C00;">{anomalias_reais}</div></div>', unsafe_allow_html=True)
+                    # Contar chamados em aberto (não finalizados)
+                    df_chamados_total = carregar_chamados()
+                    if not df_chamados_total.empty:
+                        chamados_abertos = len(df_chamados_total)
+                        st.markdown(f'<div class="metric-card"><div class="metric-title">Chamados em Aberto</div><div class="metric-value" style="color: #FF6B6B;">{chamados_abertos}</div></div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="metric-card"><div class="metric-title">Chamados em Aberto</div><div class="metric-value" style="color: #FF6B6B;">0</div></div>', unsafe_allow_html=True)
 
                 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1216,7 +1250,7 @@ if sistema_login():
                         status_counts = df_filtrado["status"].value_counts().reset_index(name="qtd")
                         fig_st_donut = px.pie(status_counts, values='qtd', names='status', hole=0.5, title="<b>STATUS OPERACIONAL GERAL</b>", color='status', color_discrete_map=mapa_cores_plotly)
                         fig_st_donut.update_traces(textfont=dict(size=15, color="white"), textinfo='percent', hovertemplate='<b>Status: %{label}</b><br>Quantidade: %{value}<br>Percentual: %{percent:.1f}%<extra></extra>')
-                        fig_st_donut.update_layout(showlegend=True, height=270, margin=dict(t=35, b=5, l=5, r=5), title={'x': 0.5, 'xanchor': 'center'}, legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(size=14)), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                        fig_st_donut.update_layout(showlegend=True, height=270, margin=dict(t=55, b=5, l=5, r=5), title={'x': 0.5, 'xanchor': 'center','y': 0.98}, legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(size=14)), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                         st.plotly_chart(fig_st_donut, use_container_width=True)
                         
                # GRÁFICO DE CONVÊNIO DE SISTEMAS OPERACIONAIS - Gráfico de Barras        
@@ -1231,7 +1265,7 @@ if sistema_login():
                             hovertemplate='<b>SO: %{y}</b><br>Quantidade: %{x}<extra></extra>'
                         )
                         fig_so.update_layout(
-                            title_x=0.5, 
+                            title={'x': 0.5, 'xanchor': 'center'},
                             height=270, 
                             bargap=0.35,
                             margin=dict(t=35, b=5, l=5, r=5), 
@@ -1371,7 +1405,7 @@ if sistema_login():
                         st.markdown("<p style='text-align:center; color:green; padding-top:40px;'>✅ Nenhuma anomalia ativa em máquinas com problema.</p>", unsafe_allow_html=True)
 
             st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
-            if st.button("📋 Visualizar Tabela Completa de Dados (Pop-up)", use_container_width=True):
+            if st.button("📋 Visualizar Tabela Completa de Dados", use_container_width=True):
                 modal_tabela_dados(df_filtrado)
 
     # --- ABA 2: CENTRAL DE CHAMADOS ---
@@ -1411,8 +1445,28 @@ if sistema_login():
                         if st.button("CONFIRMAR FINALIZAÇÃO", use_container_width=True):
                             info_chamado = exibir[exibir['ID'] == id_excluir]
                             comp_ref = info_chamado['Computador'].iloc[0] if not info_chamado.empty else "N/A"
+                            
+                            try:
+                                # Buscar a máquina vinculada ao chamado
+                                chamado = supabase.table("chamados").select("maquina_id").eq("id", id_excluir).execute()
+                                if chamado.data and len(chamado.data) > 0:
+                                    maquina_id = chamado.data[0]["maquina_id"]
+                                    
+                                    # Atualizar status da máquina para OK e limpar anomalia
+                                    supabase.table("maquinas").update({
+                                        "status": "OK",
+                                        "anomalia": ""
+                                    }).eq("id", maquina_id).execute()
+                                    
+                                    # Registrar no histórico a ação automatizada
+                                    registrar_historico("FINALIZAR CHAMADO", f"Chamado {id_excluir} finalizado. Máquina {comp_ref} restaurada para OK.")
+                                    
+                            except Exception as e:
+                                st.error(f"Erro ao restaurar máquina: {e}")
+                            
+                            # Deletar o chamado
                             supabase.table("chamados").delete().eq("id", id_excluir).execute()
-                            st.toast(f"Chamado {id_excluir} finalizado!", icon='✅')
+                            st.toast(f"✅ Chamado {id_excluir} finalizado! Máquina restaurada para OK.", icon='✅')
                             st.rerun()
             else: 
                 st.markdown(f"<div style='background-color: rgba(128, 128, 128, 0.08); padding: 1rem; border-radius: 8px; text-align: center; border-left: 5px solid {cor_atual};'><p style='color: {cor_atual}; font-weight: 700; margin: 0;'>ℹ️ Nenhum chamado pendente no momento.</p></div>", unsafe_allow_html=True)
