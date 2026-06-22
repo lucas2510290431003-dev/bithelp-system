@@ -15,7 +15,12 @@ except:
 st.set_page_config(
     page_title="Bithelp - GearTech Solutions",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': "**Bithelp - GearTech Solutions**\n\nSistema de Help Desk e BI\n\nDesenvolvido para TCC\n\nVersão 1.0"
+    }
 )
 
 # --- CONFIGURAÇÕES SUPABASE ---
@@ -42,7 +47,7 @@ def sistema_login():
                     if btn_entrar:
                         if usuario_input and senha_input:
                             try:
-                                client_auth = create_client(URL_SUPABASE, KEY_SUPABASE)
+                                client_auth = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
                                 termo = usuario_input.strip().lower()
                                 response = client_auth.table("usuarios").select("*").eq("senha", senha_input.strip()).execute()
                                 
@@ -73,7 +78,9 @@ if sistema_login():
     # --- 3. CONEXÃO E CARREGAMENTO DE DADOS ---
     @st.cache_resource
     def init_connection():
-        return create_client(URL_SUPABASE, KEY_SUPABASE)
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+        return create_client(url, key)
 
     supabase = init_connection()
 
@@ -158,9 +165,20 @@ if sistema_login():
         # Carregar histórico para saber quem resolveu (aproximado)
         df_hist = carregar_historico()
         
-        # Calcular métricas
+                # ===== CONTAGEM SIMPLES =====
         total_chamados = len(df_mes)
-        chamados_resolvidos = len(df_hist[df_hist['acao'] == 'FINALIZAR CHAMADO']) if not df_hist.empty else 0
+        
+        chamados_resolvidos = 0
+        if not df_hist.empty:
+            df_hist['created_at'] = pd.to_datetime(df_hist['created_at'])
+            df_hist_mes = df_hist[
+                (df_hist['acao'] == 'FINALIZAR CHAMADO') &
+                (df_hist['created_at'].dt.year == ano) &
+                (df_hist['created_at'].dt.month == mes)
+            ]
+            chamados_resolvidos = len(df_hist_mes)
+        
+        chamados_abertos = total_chamados - chamados_resolvidos
         taxa_resolucao = (chamados_resolvidos / total_chamados * 100) if total_chamados > 0 else 0
         
         # Ranking de usuários que abriram chamados (baseado no histórico)
@@ -250,14 +268,30 @@ if sistema_login():
         elementos.append(Paragraph("<b><font size=14>📊 RESUMO GERAL</font></b>", styles['Heading3']))
         elementos.append(Spacer(1, 10))
         
-        dados_resumo = [
-            ['Total de Chamados', str(total_chamados)],
-            ['Chamados Resolvidos', str(chamados_resolvidos)],
-            ['Taxa de Resolução', f"{taxa_resolucao:.1f}%"],
-            ['Em Aberto', str(total_chamados - chamados_resolvidos)],
-        ]
+                # Calcular apenas números positivos
+        total_abertos = total_chamados
+        total_resolvidos = chamados_resolvidos
         
-        tabela_resumo = Table(dados_resumo, colWidths=[150, 80])
+        # Se houver saldo negativo, ajustar para mostrar apenas o que faz sentido
+        if total_resolvidos > total_abertos:
+            # Mostrar que resolveu chamados de meses anteriores
+            saldo_extra = total_resolvidos - total_abertos
+            dados_resumo = [
+                ['Chamados Abertos no Mês', str(total_abertos)],
+                ['Chamados Resolvidos no Mês', str(total_resolvidos)],
+                ['Taxa de Resolução', f"{taxa_resolucao:.1f}%"],
+                ['Chamados Extra Resolvidos (meses anteriores)', str(saldo_extra)],
+            ]
+        else:
+            chamados_em_aberto = total_abertos - total_resolvidos
+            dados_resumo = [
+                ['Chamados Abertos no Mês', str(total_abertos)],
+                ['Chamados Resolvidos no Mês', str(total_resolvidos)],
+                ['Taxa de Resolução', f"{taxa_resolucao:.1f}%"],
+                ['Chamados em Aberto', str(chamados_em_aberto)],
+            ]
+        
+        tabela_resumo = Table(dados_resumo, colWidths=[270, 80])
         tabela_resumo.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#1E40AF')),
             ('TEXTCOLOR', (0, 0), (0, -1), colors.whitesmoke),
@@ -279,9 +313,9 @@ if sistema_login():
         elementos.append(tabela_alinhada)
         elementos.append(Spacer(1, 20))
         
-                # ===== RANKING DE USUÁRIOS =====
+        # ===== RANKING DE USUÁRIOS =====
         if ranking_ordenado:
-            elementos.append(Paragraph("<b><font size=14>👥 RANKING DE ABERTURAS</font></b>", styles['Heading3']))
+            elementos.append(Paragraph("<b><font size=14>👥 RANKING DE ABERTURAS (TOTAL GERAL)</font></b>", styles['Heading3']))
             elementos.append(Spacer(1, 10))
             
             dados_ranking = [['Usuário', 'Chamados Abertos']]
@@ -1234,7 +1268,7 @@ if sistema_login():
                             showlegend=False, 
                             height=270, 
                             margin=dict(t=35, b=5, l=5, r=5),
-                            title={'x': 0.5, 'xanchor': 'center'},
+                            title={'x': 0.45, 'xanchor': 'center'},
                             paper_bgcolor='rgba(0,0,0,0)', 
                             plot_bgcolor='rgba(0,0,0,0)',
                             yaxis=dict(visible=False),  # 👈 Remove eixo Y
@@ -1250,7 +1284,15 @@ if sistema_login():
                         status_counts = df_filtrado["status"].value_counts().reset_index(name="qtd")
                         fig_st_donut = px.pie(status_counts, values='qtd', names='status', hole=0.5, title="<b>STATUS OPERACIONAL GERAL</b>", color='status', color_discrete_map=mapa_cores_plotly)
                         fig_st_donut.update_traces(textfont=dict(size=15, color="white"), textinfo='percent', hovertemplate='<b>Status: %{label}</b><br>Quantidade: %{value}<br>Percentual: %{percent:.1f}%<extra></extra>')
-                        fig_st_donut.update_layout(showlegend=True, height=270, margin=dict(t=55, b=5, l=5, r=5), title={'x': 0.5, 'xanchor': 'center','y': 0.98}, legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(size=14)), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                        fig_st_donut.update_layout(
+                            showlegend=True, 
+                            height=270,  # 👈 IGUAL aos outros
+                            margin=dict(t=35, b=5, l=5, r=5),  # 👈 IGUAL aos outros
+                            title={'x': 0.5, 'xanchor': 'center'},  # 👈 SEM 'y' para ficar igual
+                            legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(size=14)),
+                            paper_bgcolor='rgba(0,0,0,0)', 
+                            plot_bgcolor='rgba(0,0,0,0)'
+                        )
                         st.plotly_chart(fig_st_donut, use_container_width=True)
                         
                # GRÁFICO DE CONVÊNIO DE SISTEMAS OPERACIONAIS - Gráfico de Barras        
@@ -1265,7 +1307,7 @@ if sistema_login():
                             hovertemplate='<b>SO: %{y}</b><br>Quantidade: %{x}<extra></extra>'
                         )
                         fig_so.update_layout(
-                            title={'x': 0.5, 'xanchor': 'center'},
+                            title_x=0.33, 
                             height=270, 
                             bargap=0.35,
                             margin=dict(t=35, b=5, l=5, r=5), 

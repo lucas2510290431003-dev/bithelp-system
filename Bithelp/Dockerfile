@@ -17,5 +17,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia o resto do código
 COPY . .
 
-# Comando para rodar o Streamlit (caso não esteja no docker-compose)
-CMD ["streamlit", "run", "main.py"]
+# Copiar a pasta .streamlit com o secrets.toml
+COPY .streamlit/ .streamlit/
+
+# Comando para rodar o Streamlit
+CMD ["streamlit", "run", "main.py", "--server.port=8501", "--server.address=0.0.0.0"]
