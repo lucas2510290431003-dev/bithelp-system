@@ -28,7 +28,6 @@ URL_SUPABASE = "https://rttcmxsvhjhcfrzbhwtm.supabase.co"
 KEY_SUPABASE = "sb_publishable_Pss3H5MunB_Ioc2t8y66pg_WKVFxRyP"
 
 # --- 2. SISTEMA DE LOGIN DINÂMICO ---
-
 def sistema_login():
     if "autenticado" not in st.session_state:
         st.session_state.autenticado = False
@@ -978,13 +977,50 @@ if sistema_login():
                 arquivo_csv = st.file_uploader("Selecione o arquivo CSV", type="csv")
                 if st.form_submit_button("Confirmar Importação", use_container_width=True, type="primary"):
                     if arquivo_csv:
-                        df_importado = pd.read_csv(arquivo_csv)
+                        # 👇 DETECTA O SEPARADOR AUTOMATICAMENTE
+                        import csv
+                        try:
+                            # Lê o arquivo como texto para detectar o separador
+                            file_content = arquivo_csv.getvalue().decode('utf-8-sig')
+                            sniffer = csv.Sniffer()
+                            delimiter = sniffer.sniff(file_content).delimiter
+                        except:
+                            # Se não conseguir detectar, usa vírgula como padrão
+                            delimiter = ','
+                        
+                        # Lê o CSV com o separador detectado
+                        df_importado = pd.read_csv(arquivo_csv, sep=delimiter, encoding='utf-8-sig')
+                        
+                        # Remove a coluna 'id' se existir
                         if 'id' in df_importado.columns:
                             df_importado = df_importado.drop(columns=['id'])
+                        
+                        # Substitui NaN por None
+                        df_importado = df_importado.replace({pd.NA: None, float('nan'): None})
+                        
+                        # Converte colunas para o tipo correto
+                        for col in df_importado.columns:
+                            if df_importado[col].dtype in ['float64', 'int64']:
+                                df_importado[col] = df_importado[col].fillna(0)
+                            else:
+                                df_importado[col] = df_importado[col].fillna('')
+                        
+                        # Garante que não haja NaN
                         df_importado = df_importado.where(pd.notnull(df_importado), None)
-                        supabase.table("maquinas").insert(df_importado.to_dict(orient='records')).execute()
+                        
+                        # Converte para lista de dicionários
+                        dados_para_inserir = df_importado.to_dict(orient='records')
+                        
+                        # Remove qualquer NaN residual
+                        for linha in dados_para_inserir:
+                            for chave, valor in linha.items():
+                                if pd.isna(valor):
+                                    linha[chave] = None
+                        
+                        # Insere no Supabase
+                        supabase.table("maquinas").insert(dados_para_inserir).execute()
                         registrar_historico("IMPORTAR CSV", f"Importou lote de {len(df_importado)} máquinas via planilha")
-                        st.toast("Importação concluída!", icon='📥')
+                        st.success(f"✅ Importação concluída! {len(df_importado)} máquinas adicionadas.")
                         st.rerun()
         with col_csv_out:
             st.markdown("**Exportar Dados Atuais**")
