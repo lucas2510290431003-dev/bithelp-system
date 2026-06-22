@@ -1240,13 +1240,13 @@ if sistema_login():
                     st.markdown(f'<div class="metric-card"><div class="metric-title">Máquinas Obsoletas</div><div class="metric-value" style="color: {cor_atual};">{legado_count} un</div></div>', unsafe_allow_html=True)
                 
                 with col_kpi4:
-                    anomalias_reais = len(df_filtrado[
-                        (df_filtrado["anomalia"] != "") & 
-                        (df_filtrado["anomalia"].str.upper() != "NENHUMA") & 
-                        (df_filtrado["anomalia"].str.upper() != "NAN") &
-                        (df_filtrado["status"].astype(str).str.upper() != "OK")  # 👈 ADICIONADO: só mostra se não estiver OK
-                    ])
-                    st.markdown(f'<div class="metric-card"><div class="metric-title">Alertas de Anomalia</div><div class="metric-value" style="color: #FF8C00;">{anomalias_reais}</div></div>', unsafe_allow_html=True)
+                    # Contar chamados em aberto (não finalizados)
+                    df_chamados_total = carregar_chamados()
+                    if not df_chamados_total.empty:
+                        chamados_abertos = len(df_chamados_total)
+                        st.markdown(f'<div class="metric-card"><div class="metric-title">Chamados em Aberto</div><div class="metric-value" style="color: #FF6B6B;">{chamados_abertos}</div></div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="metric-card"><div class="metric-title">Chamados em Aberto</div><div class="metric-value" style="color: #FF6B6B;">0</div></div>', unsafe_allow_html=True)
 
                 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1268,7 +1268,7 @@ if sistema_login():
                             showlegend=False, 
                             height=270, 
                             margin=dict(t=35, b=5, l=5, r=5),
-                            title={'x': 0.5, 'xanchor': 'center'},
+                            title={'x': 0.45, 'xanchor': 'center'},
                             paper_bgcolor='rgba(0,0,0,0)', 
                             plot_bgcolor='rgba(0,0,0,0)',
                             yaxis=dict(visible=False),  # 👈 Remove eixo Y
@@ -1284,7 +1284,15 @@ if sistema_login():
                         status_counts = df_filtrado["status"].value_counts().reset_index(name="qtd")
                         fig_st_donut = px.pie(status_counts, values='qtd', names='status', hole=0.5, title="<b>STATUS OPERACIONAL GERAL</b>", color='status', color_discrete_map=mapa_cores_plotly)
                         fig_st_donut.update_traces(textfont=dict(size=15, color="white"), textinfo='percent', hovertemplate='<b>Status: %{label}</b><br>Quantidade: %{value}<br>Percentual: %{percent:.1f}%<extra></extra>')
-                        fig_st_donut.update_layout(showlegend=True, height=270, margin=dict(t=55, b=5, l=5, r=5), title={'x': 0.5, 'xanchor': 'center'}, legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(size=14)), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                        fig_st_donut.update_layout(
+                            showlegend=True, 
+                            height=270,  # 👈 IGUAL aos outros
+                            margin=dict(t=35, b=5, l=5, r=5),  # 👈 IGUAL aos outros
+                            title={'x': 0.5, 'xanchor': 'center'},  # 👈 SEM 'y' para ficar igual
+                            legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(size=14)),
+                            paper_bgcolor='rgba(0,0,0,0)', 
+                            plot_bgcolor='rgba(0,0,0,0)'
+                        )
                         st.plotly_chart(fig_st_donut, use_container_width=True)
                         
                # GRÁFICO DE CONVÊNIO DE SISTEMAS OPERACIONAIS - Gráfico de Barras        
@@ -1299,7 +1307,7 @@ if sistema_login():
                             hovertemplate='<b>SO: %{y}</b><br>Quantidade: %{x}<extra></extra>'
                         )
                         fig_so.update_layout(
-                            title_x=0.5, 
+                            title_x=0.33, 
                             height=270, 
                             bargap=0.35,
                             margin=dict(t=35, b=5, l=5, r=5), 
