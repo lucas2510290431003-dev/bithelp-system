@@ -28,7 +28,7 @@ URL_SUPABASE = "https://rttcmxsvhjhcfrzbhwtm.supabase.co"
 KEY_SUPABASE = "sb_publishable_Pss3H5MunB_Ioc2t8y66pg_WKVFxRyP"
 
 # --- 2. SISTEMA DE LOGIN DINÂMICO ---
-"""
+
 def sistema_login():
     if "autenticado" not in st.session_state:
         st.session_state.autenticado = False
@@ -73,14 +73,7 @@ def sistema_login():
                             st.error("Por favor, preencha todos os campos.")
         return False
     return True
-"""
-def sistema_login():
-        # ===== VERSÃO TEMPORÁRIA SEM LOGIN =====
-        if "autenticado" not in st.session_state:
-            st.session_state.autenticado = True
-            st.session_state.perfil = "Administrador"
-            st.session_state.usuario_nome = "Administrador (Modo Validação)"
-        return True
+
 if sistema_login():
 
     # --- 3. CONEXÃO E CARREGAMENTO DE DADOS ---
