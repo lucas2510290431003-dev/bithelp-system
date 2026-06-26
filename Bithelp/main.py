@@ -128,15 +128,14 @@ if sistema_login():
         # --- FUNÇÃO PARA GERAR RELATÓRIO PDF ---
     def gerar_relatorio_pdf(ano, mes):
         from reportlab.lib import colors
-        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.pagesizes import A4
         from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.units import cm, mm
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.lib.units import cm
         import tempfile
         from datetime import datetime
         import locale
+        import re
         
         try:
             locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
@@ -146,14 +145,14 @@ if sistema_login():
             except:
                 pass
         
-        # Carregar dados do mês selecionado
+        # Carrega os chamados
         df_chamados = carregar_chamados()
         if df_chamados.empty:
             return None
         
         df_chamados['created_at'] = pd.to_datetime(df_chamados['created_at'])
         
-        # Filtrar por mês/ano
+        # Filtra chamados do mês
         df_mes = df_chamados[
             (df_chamados['created_at'].dt.year == ano) & 
             (df_chamados['created_at'].dt.month == mes)
@@ -162,78 +161,67 @@ if sistema_login():
         if df_mes.empty:
             return None
         
-        # Carregar histórico para saber quem resolveu (aproximado)
+        # Carrega o histórico
         df_hist = carregar_historico()
         
-                # ===== CONTAGEM SIMPLES =====
-        total_chamados = len(df_mes)
-        
+        # Chamados resolvidos (apenas do mês)
         chamados_resolvidos = 0
         if not df_hist.empty:
             df_hist['created_at'] = pd.to_datetime(df_hist['created_at'])
+            
+            ids_finalizados = []
             df_hist_mes = df_hist[
                 (df_hist['acao'] == 'FINALIZAR CHAMADO') &
                 (df_hist['created_at'].dt.year == ano) &
                 (df_hist['created_at'].dt.month == mes)
             ]
-            chamados_resolvidos = len(df_hist_mes)
+            
+            for _, row in df_hist_mes.iterrows():
+                detalhes = row.get('detalhes', '')
+                match = re.search(r'Chamado (\d+)', str(detalhes))
+                if match:
+                    ids_finalizados.append(int(match.group(1)))
+            
+            chamados_resolvidos = len(df_mes[df_mes['id'].isin(ids_finalizados)])
         
-        chamados_abertos = total_chamados - chamados_resolvidos
+        # Métricas
+        total_chamados = len(df_mes)
         taxa_resolucao = (chamados_resolvidos / total_chamados * 100) if total_chamados > 0 else 0
         
-        # Ranking de usuários que abriram chamados (baseado no histórico)
+        # Ranking
         ranking_aberturas = {}
         if not df_hist.empty:
-            aberturas = df_hist[df_hist['acao'] == 'ABERTURA DE CHAMADO']
-            for _, row in aberturas.iterrows():
+            df_hist_aberturas = df_hist[
+                (df_hist['acao'] == 'ABERTURA DE CHAMADO') &
+                (df_hist['created_at'].dt.year == ano) &
+                (df_hist['created_at'].dt.month == mes)
+            ]
+            for _, row in df_hist_aberturas.iterrows():
                 usuario = row.get('usuario', 'Desconhecido')
                 ranking_aberturas[usuario] = ranking_aberturas.get(usuario, 0) + 1
         
-        ranking_ordenado = sorted(ranking_aberturas.items(), key=lambda x: x[1], reverse=True)[:5]
-        
-        # Distribuição por prioridade
+        ranking_ordenado = sorted(ranking_aberturas.items(), key=lambda x: x[1], reverse=True)[:5] if ranking_aberturas else []
         prioridades = df_mes['prioridade'].value_counts()
         
-        # Criar arquivo temporário para o PDF
+        # Criar PDF
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
         pdf_path = temp_file.name
         temp_file.close()
         
-        # Configurar documento
         doc = SimpleDocTemplate(pdf_path, pagesize=A4)
         styles = getSampleStyleSheet()
         elementos = []
         
-        # Título principal
-        titulo_style = ParagraphStyle(
-            'Titulo',
-            parent=styles['Heading1'],
-            fontSize=24,
-            textColor=colors.HexColor('#1E40AF'),
-            alignment=1,  # Centralizado
-            spaceAfter=20
-        )
+        # Títulos
+        titulo_style = ParagraphStyle('Titulo', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor('#1E40AF'), alignment=1, spaceAfter=20)
+        subtitulo_style = ParagraphStyle('Subtitulo', parent=styles['Heading2'], fontSize=14, textColor=colors.grey, alignment=1, spaceAfter=30)
         
-        subtitulo_style = ParagraphStyle(
-            'Subtitulo',
-            parent=styles['Heading2'],
-            fontSize=14,
-            textColor=colors.grey,
-            alignment=1,
-            spaceAfter=30
-        )
-        
-                # ===== CABEÇALHO COM LOGO =====
-        from reportlab.lib import utils
-        
-        # Título e subtítulo (serão colocados na esquerda)
+        # Cabeçalho
         titulo = Paragraph("BITHELP <br/>GEARTECH SOLUTIONS", titulo_style)
         subtitulo = Paragraph(f"RELATÓRIO GERENCIAL DE CHAMADOS", subtitulo_style)
         
-        # Tentar carregar a logo
         logo_path = "bithelplogo.png"
         logo_elemento = ""
-        
         try:
             if os.path.exists(logo_path):
                 from reportlab.platypus import Image
@@ -241,12 +229,7 @@ if sistema_login():
         except:
             logo_elemento = ""
         
-        # Criar tabela para alinhar: texto à esquerda, logo à direita
-        dados_cabecalho = [
-            [titulo, logo_elemento],
-            [subtitulo, ""]
-        ]
-        
+        dados_cabecalho = [[titulo, logo_elemento], [subtitulo, ""]]
         cabecalho_tabela = Table(dados_cabecalho, colWidths=[400, 100])
         cabecalho_tabela.setStyle(TableStyle([
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
@@ -255,7 +238,6 @@ if sistema_login():
             ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
             ('TOPPADDING', (0, 0), (-1, -1), 0),
         ]))
-        
         elementos.append(cabecalho_tabela)
         elementos.append(Spacer(1, 10))
         
@@ -264,32 +246,15 @@ if sistema_login():
         elementos.append(Paragraph(f"<b>Data de Geração:</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
         elementos.append(Spacer(1, 20))
         
-                # ===== RESUMO GERAL =====
+        # ===== RESUMO GERAL =====
         elementos.append(Paragraph("<b><font size=14>📊 RESUMO GERAL</font></b>", styles['Heading3']))
         elementos.append(Spacer(1, 10))
         
-                # Calcular apenas números positivos
-        total_abertos = total_chamados
-        total_resolvidos = chamados_resolvidos
-        
-        # Se houver saldo negativo, ajustar para mostrar apenas o que faz sentido
-        if total_resolvidos > total_abertos:
-            # Mostrar que resolveu chamados de meses anteriores
-            saldo_extra = total_resolvidos - total_abertos
-            dados_resumo = [
-                ['Chamados Abertos no Mês', str(total_abertos)],
-                ['Chamados Resolvidos no Mês', str(total_resolvidos)],
-                ['Taxa de Resolução', f"{taxa_resolucao:.1f}%"],
-                ['Chamados Extra Resolvidos (meses anteriores)', str(saldo_extra)],
-            ]
-        else:
-            chamados_em_aberto = total_abertos - total_resolvidos
-            dados_resumo = [
-                ['Chamados Abertos no Mês', str(total_abertos)],
-                ['Chamados Resolvidos no Mês', str(total_resolvidos)],
-                ['Taxa de Resolução', f"{taxa_resolucao:.1f}%"],
-                ['Chamados em Aberto', str(chamados_em_aberto)],
-            ]
+        dados_resumo = [
+            ['Chamados Abertos no Mês', str(total_chamados)],
+            ['Chamados Resolvidos no Mês', str(chamados_resolvidos)],
+            ['Taxa de Resolução', f"{taxa_resolucao:.1f}%"],
+        ]
         
         tabela_resumo = Table(dados_resumo, colWidths=[270, 80])
         tabela_resumo.setStyle(TableStyle([
@@ -304,7 +269,6 @@ if sistema_login():
             ('BACKGROUND', (1, 0), (1, -1), colors.HexColor('#F3F4F6')),
         ]))
         
-        # Envolver a tabela em uma tabela maior para alinhar à esquerda
         tabela_alinhada = Table([[tabela_resumo]], colWidths=[400])
         tabela_alinhada.setStyle(TableStyle([
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
@@ -313,7 +277,7 @@ if sistema_login():
         elementos.append(tabela_alinhada)
         elementos.append(Spacer(1, 20))
         
-        # ===== RANKING DE USUÁRIOS =====
+        # ===== RANKING =====
         if ranking_ordenado:
             elementos.append(Paragraph("<b><font size=14>👥 RANKING DE ABERTURAS (TOTAL GERAL)</font></b>", styles['Heading3']))
             elementos.append(Spacer(1, 10))
@@ -334,7 +298,6 @@ if sistema_login():
                 ('BACKGROUND', (1, 1), (1, -1), colors.HexColor('#F3F4F6')),
             ]))
             
-            # Envolver a tabela em uma tabela maior para alinhar à esquerda
             tabela_alinhada = Table([[tabela_ranking]], colWidths=[400])
             tabela_alinhada.setStyle(TableStyle([
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
@@ -343,7 +306,7 @@ if sistema_login():
             elementos.append(tabela_alinhada)
             elementos.append(Spacer(1, 20))
         
-                # ===== CHAMADOS POR PRIORIDADE =====
+        # ===== PRIORIDADES =====
         if not prioridades.empty:
             elementos.append(Paragraph("<b><font size=14>⚡ CHAMADOS POR PRIORIDADE</font></b>", styles['Heading3']))
             elementos.append(Spacer(1, 10))
@@ -364,7 +327,6 @@ if sistema_login():
                 ('GRID', (0, 0), (-1, -1), 1, colors.grey),
             ]))
             
-            # Envolver a tabela em uma tabela maior para alinhar à esquerda
             tabela_alinhada = Table([[tabela_prioridade]], colWidths=[400])
             tabela_alinhada.setStyle(TableStyle([
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
@@ -373,26 +335,20 @@ if sistema_login():
             elementos.append(tabela_alinhada)
             elementos.append(Spacer(1, 20))
         
-                # ===== LISTA DETALHADA =====
+        # ===== LISTA DETALHADA =====
         elementos.append(Paragraph("<b><font size=14>📋 LISTA DETALHADA DE CHAMADOS</font></b>", styles['Heading3']))
-        elementos.append(Spacer(1, 5))  # 👈 REDUZI de 10 para 5
+        elementos.append(Spacer(1, 5))
         
-        # Preparar dados da tabela detalhada
         df_exibicao = df_mes[['id', 'created_at', 'laboratorio', 'descricao', 'prioridade']].copy()
         df_exibicao['created_at'] = df_exibicao['created_at'].dt.strftime('%d/%m/%Y')
         df_exibicao.columns = ['ID', 'Data', 'Laboratório', 'Descrição', 'Prioridade']
         
-        # Limitar a 20 registros para não ficar muito grande
         if len(df_exibicao) > 20:
             df_exibicao = df_exibicao.head(20)
             elementos.append(Paragraph("<i>* Mostrando os 20 primeiros chamados</i>", styles['Italic']))
-            elementos.append(Spacer(1, 3))  # 👈 REDUZI
+            elementos.append(Spacer(1, 3))
         
-        # Converter para lista para o ReportLab
         dados_tabela = [df_exibicao.columns.tolist()] + df_exibicao.values.tolist()
-        
-        # Calcular largura da tabela
-        largura_pagina = A4[0] - 2*cm
         col_widths = [40, 70, 60, 200, 60]
         
         tabela_detalhada = Table(dados_tabela, colWidths=col_widths, repeatRows=1)
@@ -403,21 +359,21 @@ if sistema_login():
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 0), (-1, 0), 8),
             ('FONTSIZE', (0, 1), (-1, -1), 7),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),  # 👈 REDUZI de 5 para 3
-            ('TOPPADDING', (0, 0), (-1, -1), 3),     # 👈 REDUZI de 5 para 3
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ]))
         
         elementos.append(tabela_detalhada)
-        elementos.append(Spacer(1, 5))  # 👈 REDUZI de 20 para 5
+        elementos.append(Spacer(1, 5))
         
         # Rodapé
         elementos.append(Paragraph("<i>Relatório gerado automaticamente pelo sistema Bithelp - GearTech Solutions</i>", styles['Italic']))
         
         # Gerar PDF
         doc.build(elementos)
-        return pdf_path    
+        return pdf_path
 
     def carregar_historico():
         try:
@@ -1046,29 +1002,48 @@ if sistema_login():
                 maquina_selecionada = mapa_maquinas[escolha]
                 for k in lista_campos: vals[k] = maquina_selecionada.get(k, "") if pd.notna(maquina_selecionada.get(k, "")) else ""
 
+            # 👇 FUNÇÃO PARA GARANTIR STRING
+            def garantir_string(valor):
+                if valor is None:
+                    return ""
+                if pd.isna(valor):
+                    return ""
+                if str(valor).lower() in ["nan", "none", "null", ""]:
+                    return ""
+                return str(valor)
+
             with st.form("form_cadastro_full", clear_on_submit=(modo == "Novo Cadastro")):
                 c1, c2, c3 = st.columns(3)
-                with c1: new_id = st.text_input("Identificação (ID/TAG)*", value=str(vals["identificacao"]))
-                with c2: new_mac = st.text_input("Endereço MAC", value=str(vals["mac"]))
-                with c3: new_lab = st.text_input("Laboratório*", value=str(vals["laboratorio"]))
+                with c1: new_id = st.text_input("Identificação (ID/TAG)*", value=garantir_string(vals["identificacao"]))
+                with c2: new_mac = st.text_input("Endereço MAC", value=garantir_string(vals["mac"]))
+                with c3: new_lab = st.text_input("Laboratório*", value=garantir_string(vals["laboratorio"]))
 
                 c4, c5, c6, c7 = st.columns(4)
-                with c4: new_fam = st.text_input("Família CPU*", value=str(vals["familia_cpu"]))
-                with c5: new_mod = st.text_input("Modelo CPU", value=str(vals["modelo_cpu"]))
-                with c6: new_fab = st.text_input("Fabricante", value=str(vals["fabricante"]))
-                with c7: new_ger = st.text_input("Geração", value=str(vals["geracao"]))
-
+                with c4: new_fam = st.text_input("Família CPU*", value=garantir_string(vals["familia_cpu"]))
+                with c5: new_mod = st.text_input("Modelo CPU", value=garantir_string(vals["modelo_cpu"]))
+                with c6: new_fab = st.text_input("Fabricante", value=garantir_string(vals["fabricante"]))
+                with c7: new_ger = st.text_input("Geração", value=garantir_string(vals["geracao"]))
+                
                 c8, c9, col_d1, col_d2 = st.columns(4)
-                with c8: new_ram = st.text_input("RAM (GB)", value=str(vals["qtde_memoria_ram_gb"]))
+                with c8:
+                    new_ram = st.text_input("RAM (GB)", value=garantir_string(vals.get("qtde_memoria_ram_gb", "")))
                 with c9:
                     opcoes_disco = ["SSD", "HD", "SSD + HD", "SSD NVMe M.2", "SSD / HD", "SSD "]
-                    val_atual_disco = str(vals["armazenamento_tipo"]).strip()
-                    if val_atual_disco not in opcoes_disco:
-                        opcoes_disco.append(val_atual_disco) if val_atual_disco != "" else None
-                    index_disco = opcoes_disco.index(val_atual_disco) if val_atual_disco in opcoes_disco else 0
+                    val_atual_disco = garantir_string(vals.get("armazenamento_tipo", ""))
+                    
+                    if val_atual_disco not in opcoes_disco and val_atual_disco.strip() != "":
+                        opcoes_disco.append(val_atual_disco)
+                    
+                    try:
+                        index_disco = opcoes_disco.index(val_atual_disco) if val_atual_disco in opcoes_disco else 0
+                    except ValueError:
+                        index_disco = 0
+                    
                     new_tipo_arm = st.selectbox("Tipo Disco", opcoes_disco, index=index_disco)
-                with col_d1: new_ssd = st.text_input("SSD (GB)", value=str(vals["qtde_ssd_gb"]))
-                with col_d2: new_hd = st.text_input("HD (GB)", value=str(vals["qtde_hd_gb"]))
+                with col_d1:
+                    new_ssd = st.text_input("SSD (GB)", value=garantir_string(vals.get("qtde_ssd_gb", "")))
+                with col_d2:
+                    new_hd = st.text_input("HD (GB)", value=garantir_string(vals.get("qtde_hd_gb", "")))
 
                 c12, c13, c14 = st.columns(3)
                 with c12:
@@ -1083,9 +1058,11 @@ if sistema_login():
                     if val_st_atual not in opcoes_status:
                         opcoes_status.append(val_st_atual) if val_st_atual != "" else None
                     new_status = st.selectbox("Status*", opcoes_status, index=opcoes_status.index(val_st_atual) if val_st_atual in opcoes_status else 0)
-                with c14: new_anomalia = st.text_input("Anomalia Atual", value=str(vals["anomalia"]))
+                with c14:
+                    new_anomalia = st.text_input("Anomalia Atual", value=garantir_string(vals.get("anomalia", "")))
 
-                new_obs = st.text_area("Observações Adicionais", value=str(vals["observacao"]))
+                new_obs = st.text_area("Observações Adicionais", value=garantir_string(vals["observacao"]))
+
 
                 st.markdown("---")
                 txt_btn = "SALVAR ALTERAÇÕES TÉCNICAS" if modo == "Editar Existente" else "CADASTRAR NOVO ATIVO"
@@ -1112,6 +1089,7 @@ if sistema_login():
                             else:
                                 supabase.table("maquinas").insert(payload).execute()
                                 registrar_historico("CADASTRO DE ATIVO", f"Cadastrou novo computador {new_id} no Lab {new_lab}")
+                                st.cache_data.clear()
                             st.rerun()
                         except Exception as e: 
                             st.error(f"Erro: {e}")
@@ -1127,6 +1105,7 @@ if sistema_login():
                     supabase.table("maquinas").delete().eq("id", mapa_maquinas[maq_exc]['id']).execute()
                     registrar_historico("REMOVER ATIVO", f"Deletou a máquina {maq_exc} permanentemente")
                     st.toast("Removido!", icon='🗑️')
+                    st.cache_data.clear()
                     st.rerun()
 
     # Central de Relatórios e Histórico de Auditoria (Modal)
@@ -1181,7 +1160,6 @@ if sistema_login():
     def modal_relatorio_pdf():
         st.markdown("### Selecione o período para o relatório")
         
-        # Dicionário com meses em português (corrigido manualmente)
         meses_pt = {
             1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
             5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
@@ -1194,7 +1172,7 @@ if sistema_login():
             mes_selecionado = st.selectbox(
                 "Mês", 
                 options=list(range(1, 13)),
-                format_func=lambda x: meses_pt[x],  # 👈 USA O DICIONÁRIO
+                format_func=lambda x: meses_pt[x],
                 index=datetime.now().month - 1
             )
         with col_ano:
@@ -1204,29 +1182,31 @@ if sistema_login():
         
         if st.button("✅ GERAR RELATÓRIO PDF", use_container_width=True, type="primary"):
             with st.spinner("Gerando relatório... Isso pode levar alguns segundos."):
-                pdf_path = gerar_relatorio_pdf(ano_selecionado, mes_selecionado)
-                
-                if pdf_path:
-                    with open(pdf_path, "rb") as f:
-                        pdf_data = f.read()
+                try:
+                    pdf_path = gerar_relatorio_pdf(ano_selecionado, mes_selecionado)
                     
-                    import os
-                    os.unlink(pdf_path)
-                    
-                    nome_mes = meses_pt[mes_selecionado].lower()
-                    nome_arquivo = f"relatorio_chamados_{nome_mes}_{ano_selecionado}.pdf"
-                    
-                    st.success(f"✅ Relatório gerado com sucesso!")
-                    st.download_button(
-                        label="📥 BAIXAR RELATÓRIO PDF",
-                        data=pdf_data,
-                        file_name=nome_arquivo,
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
-                else:
-                    st.error(f"❌ Nenhum chamado encontrado para {meses_pt[mes_selecionado]}/{ano_selecionado}")
-                    
+                    if pdf_path:
+                        with open(pdf_path, "rb") as f:
+                            pdf_data = f.read()
+                        
+                        import os
+                        os.unlink(pdf_path)
+                        
+                        nome_mes = meses_pt[mes_selecionado].lower()
+                        nome_arquivo = f"relatorio_chamados_{nome_mes}_{ano_selecionado}.pdf"
+                        
+                        st.success(f"✅ Relatório gerado com sucesso!")
+                        st.download_button(
+                            label="📥 BAIXAR RELATÓRIO PDF",
+                            data=pdf_data,
+                            file_name=nome_arquivo,
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                    else:
+                        st.warning(f"ℹ️ Nenhum chamado foi aberto em {meses_pt[mes_selecionado]} de {ano_selecionado}.")
+                except Exception as e:
+                    st.error(f"❌ Erro ao gerar relatório: {e}")
 
     # --- ABA 1: DASHBOARD OTIMIZADA ---
     if aba_dash:
