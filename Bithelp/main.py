@@ -422,7 +422,7 @@ if sistema_login():
         elementos.append(tabela_detalhada)
         
         # Rodapé
-        elementos.append(Spacer(1, 148))  
+        elementos.append(Spacer(1, 106))  
         elementos.append(Paragraph("<i>Relatório gerado automaticamente pelo sistema Bithelp - GearTech Solutions</i>", styles['Italic']))
         
         # Gerar PDF
