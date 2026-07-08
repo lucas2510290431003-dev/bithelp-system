@@ -90,7 +90,7 @@ if sistema_login():
         acoes_importantes = [
             "ABERTURA DE CHAMADO", "FINALIZAR CHAMADO",
             "CADASTRAR USUÁRIO", "REMOVER USUÁRIO",
-            "CADASTRO DE ATIVO", "EDIÇÃO DE ATIVO", "REMOVER ATIVO"
+            "CADASTRO DE ATIVO", "EDIÇÃO DE ATIVO", "REMOVER ATIVO", "ALTERAR PRIORIDADE"
         ]
         
         if acao not in acoes_importantes:
@@ -892,27 +892,42 @@ if sistema_login():
     def modal_abrir_chamado(dataframe_maquinas):
         mapa_maquinas_id = {str(row['identificacao']): row['id'] for _, row in dataframe_maquinas.iterrows() if str(row['identificacao']).strip() != ""}
         opcoes_select = ["Clique para selecionar..."] + list(mapa_maquinas_id.keys())
+        
         with st.form("form_abrir_chamado", clear_on_submit=True):
             col_f1, col_f2 = st.columns(2)
             with col_f1:
                 m_sel = st.selectbox("Selecione a Máquina", options=opcoes_select)
-                prioridade_input = st.selectbox("Prioridade", ["Baixa", "Média", "Alta"])
+                
+                # 👇 SÓ MOSTRA PRIORIDADE PARA ADMIN E ASSISTENTE
+                if st.session_state.perfil in ["Administrador", "Assistente"]:
+                    prioridade_input = st.selectbox("Prioridade", ["Baixa", "Média", "Alta"])
+                else:
+                    prioridade_input = "Baixa"
+                    st.info("ℹ️ A prioridade será definida pela equipe de suporte.")
+            
             with col_f2:
                 desc_input = st.text_area("Descrição do Problema", placeholder="Descreva o defeito aqui...")
             
-            if st.form_submit_button("REGISTRAR CHAMADO AGORA", use_container_width=True, type="primary"):
-                if m_sel != "Clique para selecionar..." and desc_input:
+            submitted = st.form_submit_button("REGISTRAR CHAMADO AGORA", use_container_width=True, type="primary")
+            
+            if submitted:
+                if m_sel != "Clique para selecionar..." and desc_input.strip():
                     maquina_info = dataframe_maquinas[dataframe_maquinas['identificacao'] == m_sel]
                     lab_ref = maquina_info['laboratorio'].iloc[0] if not maquina_info.empty else "N/A"
                     try:
-                        supabase.table("chamados").insert({"maquina_id": int(mapa_maquinas_id[m_sel]), "laboratorio": str(lab_ref), "descricao": desc_input, "prioridade": prioridade_input}).execute()
+                        supabase.table("chamados").insert({
+                            "maquina_id": int(mapa_maquinas_id[m_sel]),
+                            "laboratorio": str(lab_ref),
+                            "descricao": desc_input,
+                            "prioridade": prioridade_input
+                        }).execute()
                         supabase.table("maquinas").update({"status": "Pendente de Manutenção"}).eq("id", int(mapa_maquinas_id[m_sel])).execute()
-                        registrar_historico("ABERTURA DE CHAMADO", f"Chamado aberto para computador {m_sel} ({prioridade_input}). Desc: {desc_input}")
+                        registrar_historico("ABERTURA DE CHAMADO", f"Chamado aberto para computador {m_sel} (prioridade: {prioridade_input}). Desc: {desc_input}")
                         st.toast(f"✅ Chamado registrado para {m_sel}!", icon='🛠️')
-                        st.rerun() 
-                    except Exception as e: 
+                        st.rerun()
+                    except Exception as e:
                         st.error(f"Erro ao salvar no banco: {e}")
-                else: 
+                else:
                     st.error("⚠️ Preencha todos os campos antes de registrar!")
 
     @st.dialog("📋 Tabela Completa de Dados", width="large")
@@ -1532,7 +1547,7 @@ if sistema_login():
                 if st.button("➕ REGISTRAR NOVO CHAMADO DE MANUTENÇÃO", use_container_width=True, type="primary"):
                     modal_abrir_chamado(df)
 
-            # --- ABA 3: GESTÃO DE CHAMADOS ---
+                # --- ABA 3: GESTÃO DE CHAMADOS ---
     if aba_gestao:
         with aba_gestao:
             st.markdown(f"<h3 style='text-align: center; color: {cor_atual};'>📋 Chamados Ativos</h3>", unsafe_allow_html=True)
@@ -1545,16 +1560,79 @@ if sistema_login():
                 df_c['created_at'] = df_c['created_at'].dt.tz_convert('America/Sao_Paulo')
                 df_c['created_at'] = df_c['created_at'].dt.strftime('%d/%m/%Y       %H:%M:%S')
                 
-                def rotular_prioridade(p): return {"Baixa": "🔵 Baixa", "Média": "🟡 Média", "Alta": "🔴 Alta"}.get(p, p)
+                def rotular_prioridade(p): 
+                    return {"Baixa": "🔵 Baixa", "Média": "🟡 Média", "Alta": "🔴 Alta"}.get(p, p)
+                
                 df_c['Máquina'] = df_c['maquinas'].apply(lambda x: x['identificacao'] if isinstance(x, dict) else "N/A")
                 df_c['Prioridade Visual'] = df_c['prioridade'].apply(rotular_prioridade)
                 exibir = df_c[['id', 'created_at', 'Máquina', 'laboratorio', 'descricao', 'Prioridade Visual']]
                 exibir.columns = ['ID', 'Data', 'Computador', 'Lab', 'Descrição', 'Urgência']
                 st.dataframe(exibir.sort_values(by='ID', ascending=False), use_container_width=True, hide_index=True)
                 
+                # 👇 DIVISÓRIA VISUAL
+                st.markdown("---")
+
+                # 👇 SEÇÃO PARA ALTERAR PRIORIDADE (APENAS PARA ADMIN E ASSISTENTE)
                 if st.session_state.perfil in ["Administrador", "Assistente"]:
+                    st.markdown("<p style='font-weight: 700; font-size: 1.1rem;'>🔧 Alterar Prioridade do Chamado</p>", unsafe_allow_html=True)
+                    
+                    # Criar um dicionário para exibir chamados com ID e descrição resumida
+                    opcoes_chamados = {}
+                    for _, row in df_c.iterrows():
+                        descricao_resumida = row['descricao'][:40] + "..." if len(row['descricao']) > 40 else row['descricao']
+                        opcoes_chamados[row['id']] = f"ID {row['id']} - {descricao_resumida}"
+                    
+                    col1, col2, col3 = st.columns([2, 1, 1])
+                    with col1:
+                        chamado_selecionado = st.selectbox(
+                            "Selecione o chamado para alterar a prioridade:",
+                            options=list(opcoes_chamados.keys()),
+                            format_func=lambda x: opcoes_chamados[x]
+                        )
+                        # Mostrar prioridade atual
+                        prioridade_atual = df_c[df_c['id'] == chamado_selecionado]['prioridade'].iloc[0] if chamado_selecionado in df_c['id'].values else "N/A"
+                        st.caption(f"Prioridade atual: **{prioridade_atual}**")
+                    with col2:
+                        nova_prioridade = st.selectbox(
+                            "Nova Prioridade:",
+                            ["Baixa", "Média", "Alta"],
+                            key="alterar_prioridade_select"
+                        )
+                    with col3:
+                        st.markdown("<br>", unsafe_allow_html=True)  # Alinhamento visual
+                        if st.button("✅ ATUALIZAR PRIORIDADE", use_container_width=True, type="primary"):
+                            try:
+                                # Buscar a prioridade atual antes de alterar
+                                chamado_atual = df_c[df_c['id'] == chamado_selecionado]
+                                prioridade_antiga = chamado_atual['prioridade'].iloc[0] if not chamado_atual.empty else "N/A"
+                                
+                                # Atualizar no banco
+                                supabase.table("chamados").update({"prioridade": nova_prioridade}).eq("id", chamado_selecionado).execute()
+                                
+                                # Registrar no histórico
+                                registrar_historico(
+                                    "ALTERAR PRIORIDADE",
+                                    f"Chamado {chamado_selecionado} alterado de '{prioridade_antiga}' para '{nova_prioridade}'"
+                                )
+                                
+                                st.toast(f"✅ Prioridade do chamado {chamado_selecionado} alterada para '{nova_prioridade}'!", icon='🔄')
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro ao alterar prioridade: {e}")
+
+                                                # 👇 SEÇÃO DE FINALIZAÇÃO (APENAS PARA ADMIN E ASSISTENTE)
+                if st.session_state.perfil in ["Administrador", "Assistente"]:
+                    st.markdown("---")
                     with st.expander("🗑️ Dar Baixa em Chamado Resolvido"):
                         id_excluir = st.selectbox("Selecione o ID do Chamado:", options=exibir['ID'].tolist())
+                        
+                        procedimento_realizado = st.text_area(
+                            "📝 Registre o procedimento realizado:",
+                            placeholder="Ex: Substituição do HD por SSD, formatação e reinstalação do Windows...",
+                            height=100,
+                            key="procedimento_finalizacao"
+                        )
+                        
                         if st.button("CONFIRMAR FINALIZAÇÃO", use_container_width=True):
                             info_chamado = exibir[exibir['ID'] == id_excluir]
                             comp_ref = info_chamado['Computador'].iloc[0] if not info_chamado.empty else "N/A"
@@ -1574,20 +1652,44 @@ if sistema_login():
                                     # Marcar chamado como finalizado
                                     supabase.table("chamados").update({
                                         "finalizado": True,
-                                        "status": "finalizado"
+                                        "status_chamado": "finalizado"
                                     }).eq("id", id_excluir).execute()
+                                    
+                                    # 👇 REGISTRAR PROCEDIMENTO SE FOR PREENCHIDO
+                                    if procedimento_realizado.strip():
+                                        try:
+                                            print(f"🔍 Inserindo procedimento: chamado_id={id_excluir}, maquina_id={maquina_id}, usuario={st.session_state.usuario_nome}")
+                                            
+                                            resultado = supabase.table("procedimentos").insert({
+                                                "chamado_id": int(id_excluir),
+                                                "maquina_id": int(maquina_id),
+                                                "usuario": st.session_state.usuario_nome,
+                                                "descricao": procedimento_realizado.strip()
+                                            }).execute()
+                                            
+                                            print(f"✅ Resultado da inserção: {resultado}")
+                                            
+                                            if resultado.data:
+                                                st.toast("📝 Procedimento registrado com sucesso!", icon='📋')
+                                                registrar_historico(
+                                                    "REGISTRAR PROCEDIMENTO",
+                                                    f"Procedimento registrado para chamado {id_excluir}, máquina {comp_ref}: {procedimento_realizado.strip()[:50]}..."
+                                                )
+                                            else:
+                                                st.warning("⚠️ Procedimento não foi registrado. Verifique o banco.")
+                                        except Exception as e_proc:
+                                            st.error(f"❌ Erro ao registrar procedimento: {e_proc}")
+                                            print(f"❌ Erro detalhado: {e_proc}")
                                     
                                     # Registrar no histórico a ação automatizada
                                     registrar_historico("FINALIZAR CHAMADO", f"Chamado {id_excluir} finalizado. Máquina {comp_ref} restaurada para OK.")
                                     
                             except Exception as e:
-                                st.error(f"Erro ao restaurar máquina: {e}")
-
-                            # Marcar chamado como finalizado e atualizar status
-                            supabase.table("chamados").update({
-                            "finalizado": True,
-                            "status": "finalizado"
-                            }).eq("id", id_excluir).execute()
+                                st.error(f"❌ Erro ao finalizar chamado: {e}")
+                                print(f"❌ Erro completo: {e}")
+                            
+                            # Deletar o chamado
+                            supabase.table("chamados").delete().eq("id", id_excluir).execute()
                             st.toast(f"✅ Chamado {id_excluir} finalizado! Máquina restaurada para OK.", icon='✅')
                             st.rerun()
             else: 
