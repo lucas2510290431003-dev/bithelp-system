@@ -14,7 +14,7 @@ except:
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
     page_title="Bithelp - GearTech Solutions",
-    page_icon="bithelplogo.png",
+    page_icon="bithelp_icon.png",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
