@@ -920,7 +920,11 @@ if sistema_login():
                         }).execute()
                         supabase.table("maquinas").update({"status": "Pendente de Manutenção"}).eq("id", int(mapa_maquinas_id[m_sel])).execute()
                         registrar_historico("ABERTURA DE CHAMADO", f"Chamado aberto para computador {m_sel} (prioridade: {prioridade_input}). Desc: {desc_input}")
-                        st.toast(f"✅ Chamado registrado para {m_sel}!", icon='🛠️')
+                        # Mostra a mensagem e espera 1 segundo antes de recarregar
+                        st.success("✅ Chamado registrado com sucesso")
+                        st.cache_data.clear()
+                        import time
+                        time.sleep(1)  # Aguarda 1 segundo
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao salvar no banco: {e}")
