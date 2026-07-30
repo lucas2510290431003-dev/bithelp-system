@@ -4,6 +4,11 @@ import plotly.express as px
 import os
 from supabase import create_client
 import locale
+import time
+def to_upper_safe(valor):
+    if pd.isna(valor) or valor is None:
+        return ""
+    return str(valor).strip().upper()
 try:
     locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
 except:
@@ -45,13 +50,13 @@ def sistema_login():
                         if usuario_input and senha_input:
                             try:
                                 client_auth = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
-                                termo = usuario_input.strip().lower()
+                                termo = usuario_input.strip().upper()
                                 response = client_auth.table("usuarios").select("*").eq("senha", senha_input.strip()).execute()
                                 
                                 usuario_valido = None
                                 if response.data:
                                     for user in response.data:
-                                        if user["email"].strip().lower() == termo or user["nome"].strip().lower() == termo:
+                                        if user["email"].strip().upper() == termo or user["nome"].strip().upper() == termo:
                                             usuario_valido = user
                                             break
                                         
@@ -83,7 +88,6 @@ if sistema_login():
 
     # ===== FUNÇÃO DE HISTÓRICO (VERSÃO ENXUTA) =====
     def registrar_historico(acao, detalhes=""):
-        # Só registra ações realmente importantes
         acoes_importantes = [
             "ABERTURA DE CHAMADO", "FINALIZAR CHAMADO",
             "CADASTRAR USUÁRIO", "REMOVER USUÁRIO",
@@ -91,7 +95,7 @@ if sistema_login():
         ]
         
         if acao not in acoes_importantes:
-            return  # Ignora ações desnecessárias
+            return
         
         try:
             payload_hist = {
@@ -103,13 +107,12 @@ if sistema_login():
             supabase.table("historico").insert(payload_hist).execute()
         except:
             pass
-    # ===== FIM DA FUNÇÃO =====
 
     def carregar_dados():
         try:
             response = supabase.table("maquinas").select("*").execute()
             df = pd.DataFrame(response.data)
-            df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
+            df = df.apply(lambda x: x.str.strip().upper() if x.dtype == "object" else x)
             return df
         except Exception as e:
             st.error(f"Erro ao conectar ao Supabase: {e}")
@@ -129,7 +132,6 @@ if sistema_login():
         except:
             return pd.DataFrame()
         
-        # --- FUNÇÃO PARA GERAR RELATÓRIO PDF ---
     def gerar_relatorio_pdf(ano, mes):
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
@@ -149,27 +151,22 @@ if sistema_login():
             except:
                 pass
         
-        # CARREGA TODOS OS CHAMADOS (SEM FILTRO DE FINALIZADO)
         df_chamados = carregar_todos_chamados()
         if df_chamados.empty:
             return None
         
         df_chamados['created_at'] = pd.to_datetime(df_chamados['created_at'])
         
-        # FILTRA CHAMADOS DO MÊS
         df_mes = df_chamados[
             (df_chamados['created_at'].dt.year == ano) & 
             (df_chamados['created_at'].dt.month == mes)
         ]
         
-        # SE NÃO HOUVER CHAMADOS NO MÊS, RETORNA NONE
         if df_mes.empty:
             return None
         
-        # CARREGA O HISTÓRICO
         df_hist = carregar_historico()
         
-        # CHAMADOS RESOLVIDOS (APENAS DO MÊS)
         chamados_resolvidos = 0
         if not df_hist.empty:
             df_hist['created_at'] = pd.to_datetime(df_hist['created_at'])
@@ -189,11 +186,9 @@ if sistema_login():
             
             chamados_resolvidos = len(df_mes[df_mes['id'].isin(ids_finalizados)])
         
-        # MÉTRICAS
         total_chamados = len(df_mes)
         taxa_resolucao = (chamados_resolvidos / total_chamados * 100) if total_chamados > 0 else 0
         
-        # RANKING (APENAS DO MÊS)
         ranking_aberturas = {}
         if not df_hist.empty:
             df_hist_aberturas = df_hist[
@@ -207,10 +202,8 @@ if sistema_login():
         
         ranking_ordenado = sorted(ranking_aberturas.items(), key=lambda x: x[1], reverse=True)[:5] if ranking_aberturas else []
         
-        # PRIORIDADES (APENAS DO MÊS)
         prioridades = df_mes['prioridade'].value_counts()
         
-        # CRIA O PDF
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
         pdf_path = temp_file.name
         temp_file.close()
@@ -219,7 +212,6 @@ if sistema_login():
         styles = getSampleStyleSheet()
         elementos = []
         
-        # Título
         titulo_style = ParagraphStyle(
             'Titulo',
             parent=styles['Heading1'],
@@ -237,7 +229,6 @@ if sistema_login():
             spaceAfter=30
         )
         
-        # ===== CABEÇALHO =====
         titulo = Paragraph("BITHELP <br/>GEARTECH SOLUTIONS", titulo_style)
         subtitulo = Paragraph(f"RELATÓRIO GERENCIAL DE CHAMADOS", subtitulo_style)
         
@@ -271,7 +262,6 @@ if sistema_login():
         elementos.append(Paragraph(f"<b>Data de Geração:</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
         elementos.append(Spacer(1, 20))
         
-        # ===== RESUMO GERAL =====
         elementos.append(Paragraph("<b><font size=14>📊 RESUMO GERAL</font></b>", styles['Heading3']))
         elementos.append(Spacer(1, 10))
         
@@ -281,11 +271,9 @@ if sistema_login():
             ['Taxa de Resolução', f"{taxa_resolucao:.1f}%"],
         ]
         
-        # TEMPO MÉDIO DE RESOLUÇÃO (se houver chamados resolvidos)
         if chamados_resolvidos > 0:
             tempo_medio_resolucao = None
             if not df_hist.empty:
-                # Pega os IDs dos chamados finalizados no mês
                 ids_finalizados = []
                 df_hist_mes = df_hist[
                     (df_hist['acao'] == 'FINALIZAR CHAMADO') &
@@ -299,7 +287,6 @@ if sistema_login():
                     if match:
                         ids_finalizados.append(int(match.group(1)))
                 
-                # Calcular o tempo de cada chamado
                 tempos = []
                 for chamado_id in ids_finalizados:
                     chamado = df_mes[df_mes['id'] == chamado_id]
@@ -313,7 +300,6 @@ if sistema_login():
                     tempo_medio_resolucao = sum(tempos) / len(tempos)
             
             if tempo_medio_resolucao is not None:
-                # Formatar o tempo
                 if tempo_medio_resolucao < 1:
                     minutos = int(tempo_medio_resolucao * 60)
                     tempo_formatado = f"{minutos} min"
@@ -334,7 +320,6 @@ if sistema_login():
                 
                 dados_resumo.append(['Tempo Médio de Resolução', tempo_formatado])
         
-        # ===== TABELA DO RESUMO =====
         tabela_resumo = Table(dados_resumo, colWidths=[270, 80])
         tabela_resumo.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#1E40AF')),
@@ -356,7 +341,6 @@ if sistema_login():
         elementos.append(tabela_alinhada)
         elementos.append(Spacer(1, 20))
                 
-        # ===== PRIORIDADES =====
         if not prioridades.empty:
             elementos.append(Paragraph("<b><font size=14>⚡ CHAMADOS POR PRIORIDADE</font></b>", styles['Heading3']))
             elementos.append(Spacer(1, 10))
@@ -385,7 +369,6 @@ if sistema_login():
             elementos.append(tabela_alinhada)
             elementos.append(Spacer(1, 20))
         
-        # ===== LISTA DETALHADA =====
         elementos.append(Paragraph("<b><font size=14>📋 LISTA DETALHADA DE CHAMADOS</font></b>", styles['Heading3']))
         elementos.append(Spacer(1, 5))
         
@@ -418,11 +401,9 @@ if sistema_login():
         
         elementos.append(tabela_detalhada)
         
-        # Rodapé
         elementos.append(Spacer(1, 106))  
         elementos.append(Paragraph("<i>Relatório gerado automaticamente pelo sistema Bithelp - GearTech Solutions</i>", styles['Italic']))
         
-        # Gerar PDF
         doc.build(elementos)
         return pdf_path
 
@@ -661,6 +642,8 @@ if sistema_login():
     cor_secundaria = paletas_config[st.session_state.paleta_cor]["secundaria"]
     filtro_atual = paletas_config[st.session_state.paleta_cor]["filtro_logo"]
     mapa_cores_plotly = paletas_config[st.session_state.paleta_cor]["mapa"]
+    # CONVERTE AS CHAVES DO MAPA DE CORES PARA MAIÚSCULAS (senão as cores ficam erradas no gráfico de rosca)
+    mapa_cores_plotly = {k.upper(): v for k, v in mapa_cores_plotly.items()}
 
     # --- 4. ESTILO CSS REFINADO ---
     st.markdown(f"""
@@ -845,18 +828,16 @@ if sistema_login():
         st.sidebar.markdown("<p style='text-align: center; font-weight: bold; margin-bottom: 5px;'>Filtros do Inventário</p>", unsafe_allow_html=True)
         def criar_filtro(label, column_name):
             if column_name in df.columns:
-                opcoes = sorted([str(x) for x in df[column_name].dropna().unique() if str(x).strip() != ""])
+                opcoes = sorted([str(x).upper() for x in df[column_name].dropna().unique() if str(x).strip() != ""])
                 return st.sidebar.multiselect(label, options=opcoes, default=opcoes)
             return []
 
         f_lab = criar_filtro("Laboratório", "laboratorio")
-        # Cria uma lista fixa com apenas as duas opções
-        opcoes_status = ["OK", "Pendente de Manutenção"]
+        opcoes_status = ["OK", "PENDENTE DE MANUTENÇÃO"]
         f_status = st.sidebar.multiselect("Status da Máquina", options=opcoes_status, default=opcoes_status)
         f_so = criar_filtro("Sistema Operacional", "sistema_operacional")
         f_familia = criar_filtro("Família CPU", "familia_cpu")
     else:
-        # Usuários não-admin não têm filtros (valores vazios)
         f_lab = []
         f_status = []
         f_so = []
@@ -887,7 +868,7 @@ if sistema_login():
     # --- DEFINE MODAIS ---
     @st.dialog("🛠️ Registrar Novo Chamado Técnico", width="large")
     def modal_abrir_chamado(dataframe_maquinas):
-        mapa_maquinas_id = {str(row['identificacao']): row['id'] for _, row in dataframe_maquinas.iterrows() if str(row['identificacao']).strip() != ""}
+        mapa_maquinas_id = {str(row['identificacao']).upper(): row['id'] for _, row in dataframe_maquinas.iterrows() if str(row['identificacao']).strip() != ""}
         opcoes_select = ["Clique para selecionar..."] + list(mapa_maquinas_id.keys())
         
         with st.form("form_abrir_chamado", clear_on_submit=True):
@@ -895,7 +876,6 @@ if sistema_login():
             with col_f1:
                 m_sel = st.selectbox("Selecione a Máquina", options=opcoes_select)
                 
-                # 👇 SÓ MOSTRA PRIORIDADE PARA ADMIN E ASSISTENTE
                 if st.session_state.perfil in ["Administrador", "Assistente"]:
                     prioridade_input = st.selectbox("Prioridade", ["Baixa", "Média", "Alta"])
                 else:
@@ -909,22 +889,20 @@ if sistema_login():
             
             if submitted:
                 if m_sel != "Clique para selecionar..." and desc_input.strip():
-                    maquina_info = dataframe_maquinas[dataframe_maquinas['identificacao'] == m_sel]
+                    maquina_info = dataframe_maquinas[dataframe_maquinas['identificacao'].str.upper() == m_sel]
                     lab_ref = maquina_info['laboratorio'].iloc[0] if not maquina_info.empty else "N/A"
                     try:
                         supabase.table("chamados").insert({
                             "maquina_id": int(mapa_maquinas_id[m_sel]),
-                            "laboratorio": str(lab_ref),
-                            "descricao": desc_input,
+                            "laboratorio": str(lab_ref).upper(),
+                            "descricao": desc_input.upper(),
                             "prioridade": prioridade_input
                         }).execute()
-                        supabase.table("maquinas").update({"status": "Pendente de Manutenção"}).eq("id", int(mapa_maquinas_id[m_sel])).execute()
-                        registrar_historico("ABERTURA DE CHAMADO", f"Chamado aberto para computador {m_sel} (prioridade: {prioridade_input}). Desc: {desc_input}")
-                        # Mostra a mensagem e espera 1 segundo antes de recarregar a página
+                        supabase.table("maquinas").update({"status": "PENDENTE DE MANUTENÇÃO"}).eq("id", int(mapa_maquinas_id[m_sel])).execute()
+                        registrar_historico("ABERTURA DE CHAMADO", f"Chamado aberto para computador {m_sel} (prioridade: {prioridade_input}). Desc: {desc_input.upper()}")
                         st.success("✅ Chamado registrado com sucesso")
                         st.cache_data.clear()
-                        import time
-                        time.sleep(1)  # Aguarda 1 segundo
+                        time.sleep(1)
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao salvar no banco: {e}")
@@ -933,7 +911,10 @@ if sistema_login():
 
     @st.dialog("📋 Tabela Completa de Dados", width="large")
     def modal_tabela_dados(dados):
-        st.dataframe(dados[["identificacao", "laboratorio", "status", "sistema_operacional", "familia_cpu", "qtde_memoria_ram_gb", "armazenamento_tipo"]], use_container_width=True, hide_index=True)
+        dados_exibicao = dados.copy()
+        for col in dados_exibicao.select_dtypes(include=['object']).columns:
+            dados_exibicao[col] = dados_exibicao[col].str.upper()
+        st.dataframe(dados_exibicao[["identificacao", "laboratorio", "status", "sistema_operacional", "familia_cpu", "qtde_memoria_ram_gb", "armazenamento_tipo"]], use_container_width=True, hide_index=True)
 
     @st.dialog("👥 Gestão de Usuários", width="large")
     def modal_gestao_usuarios():
@@ -952,10 +933,10 @@ if sistema_login():
                 if st.form_submit_button("CADASTRAR NOVO USUÁRIO", use_container_width=True, type="primary"):
                     if u_nome and u_email and u_senha:
                         try:
-                            user_payload = {"nome": u_nome.strip(), "email": u_email.strip(), "senha": u_senha.strip(), "perfil": u_perfil}
+                            user_payload = {"nome": u_nome.strip().upper(), "email": u_email.strip().upper(), "senha": u_senha.strip(), "perfil": u_perfil}
                             supabase.table("usuarios").insert(user_payload).execute()
-                            registrar_historico("CADASTRAR USUÁRIO", f"Criado usuário {u_nome} com nível {u_perfil}")
-                            st.success(f"✅ Usuário '{u_nome}' registrado.")
+                            registrar_historico("CADASTRAR USUÁRIO", f"Criado usuário {u_nome.upper()} com nível {u_perfil}")
+                            st.success(f"✅ Usuário '{u_nome.upper()}' registrado.")
                             st.rerun()
                         except Exception as e: 
                             st.error(f"Erro: {e}")
@@ -966,10 +947,10 @@ if sistema_login():
             st.markdown("**Remover Usuário**")
             try:
                 resp_usr = supabase.table("usuarios").select("id, nome").execute()
-                mapa_usuarios = {user["nome"]: user["id"] for user in resp_usr.data} if resp_usr.data else {}
+                mapa_usuarios = {user["nome"].upper(): user["id"] for user in resp_usr.data} if resp_usr.data else {}
                 if mapa_usuarios:
                     usr_exc_sel = st.selectbox("Selecione:", options=list(mapa_usuarios.keys()), key="del_usr_box")
-                    if usr_exc_sel.lower() == st.session_state.usuario_nome.lower():
+                    if usr_exc_sel.upper() == st.session_state.usuario_nome.upper():
                         st.warning("Você não pode se excluir.")
                     else:
                         if st.button("EXCLUIR USUÁRIO", use_container_width=True):
@@ -982,9 +963,9 @@ if sistema_login():
 
     @st.dialog("⚡ Atualização de Status Expressa")
     def modal_status_expresso():
-        mapa_maquinas_geral = {str(row['identificacao']): row['id'] for _, row in df.iterrows() if str(row['identificacao']).strip() != ""}
+        mapa_maquinas_geral = {str(row['identificacao']).upper(): row['id'] for _, row in df.iterrows() if str(row['identificacao']).strip() != ""}
         maq_status_sel = st.selectbox("Selecione a Máquina:", options=list(mapa_maquinas_geral.keys()), key="quick_maq")
-        novo_status_sel = st.selectbox("Novo Status:", ["OK", "Pendente de Manutenção", "Inativo", "Em Reparo"], key="quick_status")
+        novo_status_sel = st.selectbox("Novo Status:", ["OK", "PENDENTE DE MANUTENÇÃO", "INATIVO", "EM REPARO"], key="quick_status")
         if st.button("ATUALIZAR STATUS", use_container_width=True, type="primary"):
             try:
                 supabase.table("maquinas").update({"status": novo_status_sel}).eq("id", mapa_maquinas_geral[maq_status_sel]).execute()
@@ -1003,47 +984,41 @@ if sistema_login():
                 arquivo_csv = st.file_uploader("Selecione o arquivo CSV", type="csv")
                 if st.form_submit_button("Confirmar Importação", use_container_width=True, type="primary"):
                     if arquivo_csv:
-                        # 👇 DETECTA O SEPARADOR AUTOMATICAMENTE
                         import csv
                         try:
-                            # Lê o arquivo como texto para detectar o separador
                             file_content = arquivo_csv.getvalue().decode('utf-8-sig')
                             sniffer = csv.Sniffer()
                             delimiter = sniffer.sniff(file_content).delimiter
                         except:
-                            # Se não conseguir detectar, usa vírgula como padrão
                             delimiter = ','
                         
-                        # Lê o CSV com o separador detectado
                         df_importado = pd.read_csv(arquivo_csv, sep=delimiter, encoding='utf-8-sig')
                         
-                        # Remove a coluna 'id' se existir
                         if 'id' in df_importado.columns:
                             df_importado = df_importado.drop(columns=['id'])
                         
-                        # Substitui NaN por None
+                        # CONVERTER TUDO PARA UPPERCASE
+                        for col in df_importado.columns:
+                            if df_importado[col].dtype == 'object':
+                                df_importado[col] = df_importado[col].astype(str).str.upper()
+                        
                         df_importado = df_importado.replace({pd.NA: None, float('nan'): None})
                         
-                        # Converte colunas para o tipo correto
                         for col in df_importado.columns:
                             if df_importado[col].dtype in ['float64', 'int64']:
                                 df_importado[col] = df_importado[col].fillna(0)
                             else:
                                 df_importado[col] = df_importado[col].fillna('')
                         
-                        # Garante que não haja NaN
                         df_importado = df_importado.where(pd.notnull(df_importado), None)
                         
-                        # Converte para lista de dicionários
                         dados_para_inserir = df_importado.to_dict(orient='records')
                         
-                        # Remove qualquer NaN residual
                         for linha in dados_para_inserir:
                             for chave, valor in linha.items():
                                 if pd.isna(valor):
                                     linha[chave] = None
                         
-                        # Insere no Supabase
                         supabase.table("maquinas").insert(dados_para_inserir).execute()
                         registrar_historico("IMPORTAR CSV", f"Importou lote de {len(df_importado)} máquinas via planilha")
                         st.success(f"✅ Importação concluída! {len(df_importado)} máquinas adicionadas.")
@@ -1058,21 +1033,21 @@ if sistema_login():
     def modal_formulario_completo():
         col_cad, col_exc = st.columns([3, 1])
         with col_cad:
-            mapa_maquinas = {str(row['identificacao']): row for _, row in df.iterrows() if str(row['identificacao']).strip() != ""}
+            mapa_maquinas = {str(row['identificacao']).upper(): row for _, row in df.iterrows() if str(row['identificacao']).strip() != ""}
             modo = st.radio("Ação:", ["Novo Cadastro", "Editar Existente"], horizontal=True)
              
             lista_campos = ["identificacao", "mac", "laboratorio", "familia_cpu", "modelo_cpu", "fabricante", "geracao", "qtde_memoria_ram_gb", "armazenamento_tipo", "qtde_ssd_gb", "qtde_hd_gb", "sistema_operacional", "status", "anomalia", "observacao"]
             vals = {k: "" for k in lista_campos}
             vals["status"] = "OK"
-            vals["sistema_operacional"] = "Windows 11"
+            vals["sistema_operacional"] = "WINDOWS 11"
             maquina_selecionada = None
              
             if modo == "Editar Existente" and mapa_maquinas:
                 escolha = st.selectbox("Selecione a Máquina para editar:", options=list(mapa_maquinas.keys()))
                 maquina_selecionada = mapa_maquinas[escolha]
-                for k in lista_campos: vals[k] = maquina_selecionada.get(k, "") if pd.notna(maquina_selecionada.get(k, "")) else ""
+                for k in lista_campos: 
+                    vals[k] = maquina_selecionada.get(k, "") if pd.notna(maquina_selecionada.get(k, "")) else ""
 
-            # 👇 FUNÇÃO PARA GARANTIR STRING
             def garantir_string(valor):
                 if valor is None:
                     return ""
@@ -1080,7 +1055,7 @@ if sistema_login():
                     return ""
                 if str(valor).lower() in ["nan", "none", "null", ""]:
                     return ""
-                return str(valor)
+                return str(valor).upper()
 
             with st.form("form_cadastro_full", clear_on_submit=(modo == "Novo Cadastro")):
                 c1, c2, c3 = st.columns(3)
@@ -1117,14 +1092,14 @@ if sistema_login():
 
                 c12, c13, c14 = st.columns(3)
                 with c12:
-                    opcoes_so = ["Windows 11", "Windows 10", "Windows 7", "Linux", "MacOS"]
-                    val_so_atual = str(vals["sistema_operacional"]).strip()
+                    opcoes_so = ["WINDOWS 11", "WINDOWS 10", "WINDOWS 7", "LINUX", "MACOS"]
+                    val_so_atual = str(vals["sistema_operacional"]).strip().upper()
                     if val_so_atual not in opcoes_so:
                         opcoes_so.append(val_so_atual) if val_so_atual != "" else None
                     new_so = st.selectbox("Sistema Operacional*", opcoes_so, index=opcoes_so.index(val_so_atual) if val_so_atual in opcoes_so else 0)
                 with c13:
-                    opcoes_status = ["OK", "Pendente de Manutenção", "Inativo", "Em Reparo", "Pendente"]
-                    val_st_atual = str(vals["status"]).strip()
+                    opcoes_status = ["OK", "PENDENTE DE MANUTENÇÃO", "INATIVO", "EM REPARO", "PENDENTE"]
+                    val_st_atual = str(vals["status"]).strip().upper()
                     if val_st_atual not in opcoes_status:
                         opcoes_status.append(val_st_atual) if val_st_atual != "" else None
                     new_status = st.selectbox("Status*", opcoes_status, index=opcoes_status.index(val_st_atual) if val_st_atual in opcoes_status else 0)
@@ -1144,21 +1119,28 @@ if sistema_login():
                             hd_val = int(new_hd.split('.')[0]) if str(new_hd).strip().replace('.0','').isdigit() else None
 
                             payload = {
-                                "identificacao": new_id, "mac": new_mac, "laboratorio": new_lab,
-                                "familia_cpu": new_fam, "modelo_cpu": new_mod, "fabricante": new_fab,
-                                "geracao": new_ger, "qtde_memoria_ram_gb": ram_val, 
-                                "armazenamento_tipo": new_tipo_arm, "qtde_ssd_gb": ssd_val, 
-                                "qtde_hd_gb": hd_val, "sistema_operacional": new_so,
-                                "status": new_status, "anomalia": new_anomalia, "observacao": new_obs
+                                "identificacao": new_id.upper(), "mac": new_mac.upper(), "laboratorio": new_lab.upper(),
+                                "familia_cpu": new_fam.upper(), "modelo_cpu": new_mod.upper(), "fabricante": new_fab.upper(),
+                                "geracao": new_ger.upper(), "qtde_memoria_ram_gb": ram_val, 
+                                "armazenamento_tipo": new_tipo_arm.upper(), "qtde_ssd_gb": ssd_val, 
+                                "qtde_hd_gb": hd_val, "sistema_operacional": new_so.upper(),
+                                "status": new_status.upper(), "anomalia": new_anomalia.upper(), "observacao": new_obs.upper()
                             }
                             
                             if modo == "Editar Existente":
                                 supabase.table("maquinas").update(payload).eq("id", maquina_selecionada['id']).execute()
-                                registrar_historico("EDIÇÃO DE ATIVO", f"Editou propriedades do computador {new_id}")
+                                registrar_historico("EDIÇÃO DE ATIVO", f"Editou propriedades do computador {new_id.upper()}")
                                 st.toast("Dados alterados!", icon='💾')
                             else:
+                                # 👇 VERIFICA SE A IDENTIFICAÇÃO JÁ EXISTE
+                                existe = supabase.table("maquinas").select("id").eq("identificacao", new_id.upper()).execute()
+                                if existe.data and len(existe.data) > 0:
+                                    st.error(f"❌ Máquina com identificação '{new_id.upper()}' já está cadastrada!")
+                                    st.stop()
+                                
+                                # 👇 SE NÃO EXISTIR, FAZ O CADASTRO
                                 supabase.table("maquinas").insert(payload).execute()
-                                registrar_historico("CADASTRO DE ATIVO", f"Cadastrou novo computador {new_id} no Lab {new_lab}")
+                                registrar_historico("CADASTRO DE ATIVO", f"Cadastrou novo computador {new_id.upper()} no Lab {new_lab.upper()}")
                                 st.cache_data.clear()
                             st.rerun()
                         except Exception as e: 
@@ -1183,7 +1165,6 @@ if sistema_login():
     def modal_central_relatorios():
         st.markdown("Acompanhe o registro de auditoria em tempo real.")
         
-        # Adicionar seletor de ordenação
         col_ord1, col_ord2 = st.columns([1, 3])
         with col_ord1:
             ordem = st.radio(
@@ -1195,19 +1176,16 @@ if sistema_login():
         
         df_hist = carregar_historico()
         if not df_hist.empty:
-            # CORREÇÃO DO HORÁRIO (MANTER COMO DATETIME PARA ORDENAR)
             df_hist['created_at'] = pd.to_datetime(df_hist['created_at'])
             if df_hist['created_at'].dt.tz is None:
                 df_hist['created_at'] = df_hist['created_at'].dt.tz_localize('UTC')
             df_hist['created_at'] = df_hist['created_at'].dt.tz_convert('America/Sao_Paulo')
             
-            # 👇 ORDENAR ANTES DE CONVERTER PARA STRING
             if ordem == "Mais Recente":
                 df_hist = df_hist.sort_values(by='created_at', ascending=False)
             else:
                 df_hist = df_hist.sort_values(by='created_at', ascending=True)
             
-            # 👇 AGORA CONVERTER PARA STRING (DEPOIS DE ORDENAR)
             df_hist['created_at'] = df_hist['created_at'].dt.strftime('%d/%m/%Y - %H:%M:%S')
             
             df_hist_exibir = df_hist[['created_at', 'usuario', 'perfil', 'acao', 'detalhes']].copy()
@@ -1282,13 +1260,13 @@ if sistema_login():
     if aba_dash:
         with aba_dash:
             df_filtrado = df.copy()
-            df_filtrado["laboratorio"] = df_filtrado["laboratorio"].astype(str).str.strip()
-            df_filtrado["status"] = df_filtrado["status"].astype(str).str.strip().replace('Pendente', 'Pendente de Manutenção')
-            df_filtrado["sistema_operacional"] = df_filtrado["sistema_operacional"].astype(str).str.strip()
-            df_filtrado["familia_cpu"] = df_filtrado["familia_cpu"].astype(str).str.strip()
-            df_filtrado["geracao"] = df_filtrado["geracao"].astype(str).str.strip()
-            df_filtrado["armazenamento_tipo"] = df_filtrado["armazenamento_tipo"].astype(str).str.strip()
-            df_filtrado["anomalia"] = df_filtrado["anomalia"].astype(str).str.strip()
+            df_filtrado["laboratorio"] = df_filtrado["laboratorio"].apply(to_upper_safe)
+            df_filtrado["status"] = df_filtrado["status"].apply(to_upper_safe).replace('PENDENTE', 'PENDENTE DE MANUTENÇÃO')
+            df_filtrado["sistema_operacional"] = df_filtrado["sistema_operacional"].apply(to_upper_safe)
+            df_filtrado["familia_cpu"] = df_filtrado["familia_cpu"].apply(to_upper_safe)
+            df_filtrado["geracao"] = df_filtrado["geracao"].apply(to_upper_safe)
+            df_filtrado["armazenamento_tipo"] = df_filtrado["armazenamento_tipo"].apply(to_upper_safe)
+            df_filtrado["anomalia"] = df_filtrado["anomalia"].apply(to_upper_safe)
             
             df_filtrado["qtde_memoria_ram_gb"] = pd.to_numeric(df_filtrado["qtde_memoria_ram_gb"], errors='coerce').fillna(0)
             df_filtrado["qtde_ssd_gb"] = pd.to_numeric(df_filtrado["qtde_ssd_gb"], errors='coerce').fillna(0)
@@ -1327,7 +1305,6 @@ if sistema_login():
                     st.markdown(f'<div class="metric-card"><div class="metric-title">Máquinas Obsoletas</div><div class="metric-value" style="color: {cor_atual};">{legado_count} un</div></div>', unsafe_allow_html=True)
                 
                 with col_kpi4:
-                    # Contar chamados em aberto (não finalizados)
                     df_chamados_total = carregar_chamados()
                     if not df_chamados_total.empty:
                         chamados_abertos = len(df_chamados_total)
@@ -1348,8 +1325,8 @@ if sistema_login():
                         fig_ger.update_traces(
                             marker_color=cor_atual, 
                             texttemplate='%{y}', 
-                            textposition='inside',  # 👈 MUDOU para inside
-                            textfont=dict(size=15, color="white")  # 👈 Fonte branca para contraste
+                            textposition='inside',
+                            textfont=dict(size=15, color="white")
                         )
                         fig_ger.update_layout(
                             showlegend=False, 
@@ -1358,7 +1335,7 @@ if sistema_login():
                             title={'x': 0.45, 'xanchor': 'center'},
                             paper_bgcolor='rgba(0,0,0,0)', 
                             plot_bgcolor='rgba(0,0,0,0)',
-                            yaxis=dict(visible=False),  # 👈 Remove eixo Y
+                            yaxis=dict(visible=False),
                             xaxis=dict(title="Geração")
                         )
                         fig_ger.update_xaxes(showgrid=False)
@@ -1370,12 +1347,16 @@ if sistema_login():
                     if not df_filtrado.empty:
                         status_counts = df_filtrado["status"].value_counts().reset_index(name="qtd")
                         fig_st_donut = px.pie(status_counts, values='qtd', names='status', hole=0.5, title="<b>STATUS OPERACIONAL GERAL</b>", color='status', color_discrete_map=mapa_cores_plotly)
-                        fig_st_donut.update_traces(textfont=dict(size=15, color="white"), textinfo='percent', hovertemplate='<b>Status: %{label}</b><br>Quantidade: %{value}<br>Percentual: %{percent:.1f}%<extra></extra>')
+                        fig_st_donut.update_traces(
+                        textfont=dict(size=15, color="white"),
+                        texttemplate='%{percent:.0%}',  # SEM CASAS DECIMAIS
+                        hovertemplate='<b>Status: %{label}</b><br>Quantidade: %{value}<br>Percentual: %{percent:.0%}<extra></extra>'
+    )
                         fig_st_donut.update_layout(
                             showlegend=True, 
-                            height=270,  # 👈 IGUAL aos outros
-                            margin=dict(t=35, b=5, l=5, r=5),  # 👈 IGUAL aos outros
-                            title={'x': 0.5, 'xanchor': 'center'},  # 👈 SEM 'y' para ficar igual
+                            height=270,
+                            margin=dict(t=35, b=5, l=5, r=5),
+                            title={'x': 0.5, 'xanchor': 'center'},
                             legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(size=14)),
                             paper_bgcolor='rgba(0,0,0,0)', 
                             plot_bgcolor='rgba(0,0,0,0)'
@@ -1388,7 +1369,7 @@ if sistema_login():
                         so_data = df_filtrado["sistema_operacional"].value_counts().reset_index(name="qtd")
                         fig_so = px.bar(so_data, x='qtd', y='sistema_operacional', orientation='h', text_auto=True, title="<b>DISTRIBUIÇÃO SO</b>")
                         fig_so.update_traces(
-                            marker_color=cor_atual,  # 👈 MUDOU de cor_secundaria para cor_atual
+                            marker_color=cor_atual,
                             textposition="inside",
                             textfont=dict(size=15, color="white"),
                             hovertemplate='<b>SO: %{y}</b><br>Quantidade: %{x}<extra></extra>'
@@ -1400,7 +1381,7 @@ if sistema_login():
                             margin=dict(t=35, b=5, l=5, r=5), 
                             paper_bgcolor='rgba(0,0,0,0)', 
                             plot_bgcolor='rgba(0,0,0,0)',
-                            xaxis=dict(visible=False),  # 👈 REMOVE OS NÚMEROS 0,10,20
+                            xaxis=dict(visible=False),
                             yaxis=dict(title="")
                         ) 
                         fig_so.update_xaxes(showgrid=False, title="")
@@ -1411,78 +1392,63 @@ if sistema_login():
                 st.markdown("<hr style='margin: 15px 0; border-color: rgba(128,128,128,0.2);'>", unsafe_allow_html=True)
                 col_g_infra, col_g_anomalias = st.columns([2.1, 1.9])
                 
-                # GRÁFICO DE CHAMADOS POR MÊS (LINHA DO TEMPO) - Gráfico de Colunas
+                # GRÁFICO DE BARRAS (REGISTRO DE CHAMADOS MENSAIS)
                 with col_g_infra:
-                    # GRÁFICO DE CHAMADOS POR MÊS
-                    df_chamados_total = carregar_chamados()
+                    st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>📈 CHAMADOS REGISTRADOS MENSALMENTE</p>", unsafe_allow_html=True)
+                    
+                    df_chamados_total = carregar_todos_chamados()
                     
                     if not df_chamados_total.empty:
-                        # Processar dados para gráfico mensal
                         df_mensal = df_chamados_total.copy()
                         df_mensal['created_at'] = pd.to_datetime(df_mensal['created_at'])
                         
-                        # Dicionário para converter meses para português
                         meses_pt = {
                             'Jan': 'Jan', 'Feb': 'Fev', 'Mar': 'Mar', 'Apr': 'Abr',
                             'May': 'Mai', 'Jun': 'Jun', 'Jul': 'Jul', 'Aug': 'Ago',
                             'Sep': 'Set', 'Oct': 'Out', 'Nov': 'Nov', 'Dec': 'Dez'
                         }
                         
-                        # Criar mês/ano com nome em português
                         df_mensal['mes_num'] = df_mensal['created_at'].dt.month
                         df_mensal['ano'] = df_mensal['created_at'].dt.year
-                        df_mensal['mes_ano'] = df_mensal['created_at'].dt.strftime('%b/%Y')
+                        df_mensal['mes_ano'] = df_mensal['created_at'].dt.strftime('%b')
                         
-                        # Substituir nome do mês por português
                         for en, pt in meses_pt.items():
                             df_mensal['mes_ano'] = df_mensal['mes_ano'].str.replace(en, pt)
                         
                         df_mensal['data_ref'] = df_mensal['created_at'].dt.to_period('M')
-                        
-                        # Agrupar por mês
                         df_agrupado = df_mensal.groupby(['mes_ano', 'data_ref']).size().reset_index(name='quantidade')
                         df_agrupado = df_agrupado.sort_values('data_ref')
                         
-                        # Criar gráfico de barras
-                        fig_chamados_mensal = px.bar(
-                            df_agrupado, 
-                            x='mes_ano', 
+                        fig_barras = px.bar(
+                            df_agrupado,
+                            x='mes_ano',
                             y='quantidade',
-                            title="<b>CHAMADOS MENSAIS ABERTOS</b>",
+                            title="<b></b>",
+                            labels={'mes_ano': 'Mês/Ano', 'quantidade': 'Chamados'},
                             text='quantidade',
                             color_discrete_sequence=[cor_atual]
                         )
-                        
-                        fig_chamados_mensal.update_traces(
-                            textposition='inside',  # 👈 MUDOU para inside (dentro da barra)
-                            marker_line_color=cor_secundaria,
-                            marker_line_width=1.5,
-                            textfont=dict(size=15, color="white")  # 👈 Fonte branca para contraste
+
+                        fig_barras.update_traces(
+                            textposition='inside',
+                            textfont=dict(size=15, color='white'),
+                            hovertemplate='<b>Mês: %{x}</b><br>Chamados: %{y}<extra></extra>'
                         )
                         
-                        fig_chamados_mensal.update_layout(
+                        fig_barras.update_layout(
                             height=260,
-                            margin=dict(t=35, b=25, l=5, r=5),
+                            margin=dict(t=50, b=25, l=5, r=5),  # ESPAÇO PARA O RÓTULO
                             title={'x': 0.5, 'xanchor': 'center'},
                             paper_bgcolor='rgba(0,0,0,0)',
                             plot_bgcolor='rgba(0,0,0,0)',
-                            xaxis_title="",
-                            yaxis_title="",
-                            xaxis=dict(showgrid=False),
-                            yaxis=dict(showgrid=False, visible=False)  # 👈 REMOVE o eixo Y (números 0, 0.5, 1)
+                            xaxis=dict(showgrid=False, title=""),
+                            yaxis=dict(showgrid=False, visible=False)
                         )
+                        st.plotly_chart(fig_barras, use_container_width=True)
                         
-                        fig_chamados_mensal.update_xaxes(showgrid=False)
-                        fig_chamados_mensal.update_yaxes(showgrid=False, visible=False)  # 👈 GARANTE REMOÇÃO
-                        
-                        st.plotly_chart(fig_chamados_mensal, use_container_width=True)
-                        
-                        # Adicionar métrica rápida de total
                         total_chamados = len(df_chamados_total)
-                        st.caption(f"📊 Total acumulado: {total_chamados} chamados registrados")
-                        
+                        st.caption(f"")
                     else:
-                        # Mensagem quando não há chamados
                         st.markdown(f"""
                             <div style="
                                 border: 3px dashed {cor_atual}; 
@@ -1504,38 +1470,87 @@ if sistema_login():
                                     Abra chamados para ver o histórico mensal
                                 </p>
                             </div>
-                        """, unsafe_allow_html=True)          
+                        """, unsafe_allow_html=True)
                 
                 with col_g_anomalias:
-                    st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>ATIVOS CRÍTICOS COM DIAGNÓSTICO DE FALHA</p>", unsafe_allow_html=True)
+                    st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>🎯 TAXA DE RESOLUÇÃO (MÊS ATUAL)</p>", unsafe_allow_html=True)
                     
-                    # Filtrar: tem anomalia E status não é OK
-                    df_falhas = df_filtrado[
-                        df_filtrado["anomalia"].notna() & 
-                        (df_filtrado["anomalia"].astype(str).str.strip() != "") & 
-                        (df_filtrado["anomalia"].astype(str).str.upper() != "NENHUMA") & 
-                        (df_filtrado["anomalia"].astype(str).str.upper() != "NAN") &
-                        (df_filtrado["status"].astype(str).str.upper() != "OK")
-                    ]
+                    from datetime import datetime
+                    mes_atual = datetime.now().month
+                    ano_atual = datetime.now().year
                     
-                    if not df_falhas.empty:
-                        st.dataframe(
-                            df_falhas[["identificacao", "laboratorio", "anomalia", "status"]].rename(columns={
-                                "identificacao": "ID Computador", 
-                                "laboratorio": "Laboratório", 
-                                "anomalia": "Anomalia Detectada", 
-                                "status": "Situação"
-                            }), 
-                            use_container_width=True, 
-                            hide_index=True,
-                            height=200
+                    # Carregar chamados e histórico
+                    df_chamados_total = carregar_todos_chamados()
+                    df_hist = carregar_historico()
+                    
+                    if not df_chamados_total.empty and not df_hist.empty:
+                        # Filtrar chamados do mês atual
+                        df_chamados_total['created_at'] = pd.to_datetime(df_chamados_total['created_at'])
+                        df_chamados_mes = df_chamados_total[
+                            (df_chamados_total['created_at'].dt.month == mes_atual) &
+                            (df_chamados_total['created_at'].dt.year == ano_atual)
+                        ]
+                        
+                        # Filtrar chamados resolvidos no mês atual
+                        df_hist['created_at'] = pd.to_datetime(df_hist['created_at'])
+                        df_resolvidos_mes = df_hist[
+                            (df_hist['acao'] == 'FINALIZAR CHAMADO') &
+                            (df_hist['created_at'].dt.month == mes_atual) &
+                            (df_hist['created_at'].dt.year == ano_atual)
+                        ]
+                        
+                        total_chamados_mes = len(df_chamados_mes)
+                        total_resolvidos_mes = len(df_resolvidos_mes)
+                        
+                        if total_chamados_mes > 0:
+                            taxa_resolucao = (total_resolvidos_mes / total_chamados_mes) * 100
+                        else:
+                            taxa_resolucao = 0
+                        
+                        # Garantir que a taxa não ultrapasse 100%
+                        if taxa_resolucao > 100:
+                            taxa_resolucao = 100
+                        
+                        # Criar gráfico de velocímetro
+                        fig_gauge = px.pie(
+                            values=[taxa_resolucao, 100 - taxa_resolucao],
+                            names=['Resolvidos', 'Restante'],
+                            hole=0.7,
+                            color_discrete_sequence=[cor_atual, '#E0E0E0'],
+                            title=f"<b></b>"
                         )
+                        fig_gauge.update_traces(
+                            textinfo='none',
+                            hoverinfo='none',
+                            marker=dict(line=dict(color='#FFFFFF', width=2))
+                        )
+                        fig_gauge.update_layout(
+                            height=250,
+                            margin=dict(t=50, b=20, l=10, r=10),
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            showlegend=False,
+                            annotations=[
+                                dict(
+                                    text=f"{taxa_resolucao:.1f}%",
+                                    x=0.5,
+                                    y=0.5,
+                                    font_size=28,
+                                    font_color=cor_atual,
+                                    showarrow=False
+                                )
+                            ]
+                        )
+                        st.plotly_chart(fig_gauge, use_container_width=True)
+                        
+                        st.caption(f"")
                     else:
-                        st.markdown("<p style='text-align:center; color:green; padding-top:40px;'>✅ Nenhuma anomalia ativa em máquinas com problema.</p>", unsafe_allow_html=True)
+                        st.info("Nenhum dado disponível para calcular a taxa de resolução.")
 
-            st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
-            if st.button("📋 Visualizar Tabela Completa de Dados", use_container_width=True):
-                modal_tabela_dados(df_filtrado)
+                # Tabela Completa de Dados
+                st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+                if st.button("📋 Visualizar Tabela Completa de Dados", use_container_width=True):
+                    modal_tabela_dados(df_filtrado)
 
     # --- ABA 2: CENTRAL DE CHAMADOS ---
     if aba_chamado:
@@ -1554,7 +1569,6 @@ if sistema_login():
             st.markdown(f"<h3 style='text-align: center; color: {cor_atual};'>📋 Chamados Ativos</h3>", unsafe_allow_html=True)
             df_c = carregar_chamados()
             if not df_c.empty:
-                # CORREÇÃO DO HORÁRIO
                 df_c['created_at'] = pd.to_datetime(df_c['created_at'])
                 if df_c['created_at'].dt.tz is None:
                     df_c['created_at'] = df_c['created_at'].dt.tz_localize('UTC')
@@ -1564,20 +1578,17 @@ if sistema_login():
                 def rotular_prioridade(p): 
                     return {"Baixa": "🔵 Baixa", "Média": "🟡 Média", "Alta": "🔴 Alta"}.get(p, p)
                 
-                df_c['Máquina'] = df_c['maquinas'].apply(lambda x: x['identificacao'] if isinstance(x, dict) else "N/A")
+                df_c['Máquina'] = df_c['maquinas'].apply(lambda x: x['identificacao'].upper() if isinstance(x, dict) else "N/A")
                 df_c['Prioridade Visual'] = df_c['prioridade'].apply(rotular_prioridade)
                 exibir = df_c[['id', 'created_at', 'Máquina', 'laboratorio', 'descricao', 'Prioridade Visual']]
                 exibir.columns = ['ID', 'Data', 'Computador', 'Lab', 'Descrição', 'Urgência']
                 st.dataframe(exibir.sort_values(by='ID', ascending=False), use_container_width=True, hide_index=True)
                 
-                # 👇 DIVISÓRIA VISUAL
                 st.markdown("---")
 
-                # 👇 SEÇÃO PARA ALTERAR PRIORIDADE (APENAS PARA ADMIN E ASSISTENTE)
                 if st.session_state.perfil in ["Administrador", "Assistente"]:
                     st.markdown("<p style='font-weight: 700; font-size: 1.1rem;'>🔧 Alterar Prioridade do Chamado</p>", unsafe_allow_html=True)
                     
-                    # Criar um dicionário para exibir chamados com ID e descrição resumida
                     opcoes_chamados = {}
                     for _, row in df_c.iterrows():
                         descricao_resumida = row['descricao'][:40] + "..." if len(row['descricao']) > 40 else row['descricao']
@@ -1590,7 +1601,6 @@ if sistema_login():
                             options=list(opcoes_chamados.keys()),
                             format_func=lambda x: opcoes_chamados[x]
                         )
-                        # Mostrar prioridade atual
                         prioridade_atual = df_c[df_c['id'] == chamado_selecionado]['prioridade'].iloc[0] if chamado_selecionado in df_c['id'].values else "N/A"
                         st.caption(f"Prioridade atual: **{prioridade_atual}**")
                     with col2:
@@ -1600,17 +1610,14 @@ if sistema_login():
                             key="alterar_prioridade_select"
                         )
                     with col3:
-                        st.markdown("<br>", unsafe_allow_html=True)  # Alinhamento visual
+                        st.markdown("<br>", unsafe_allow_html=True)
                         if st.button("✅ ATUALIZAR PRIORIDADE", use_container_width=True, type="primary"):
                             try:
-                                # Buscar a prioridade atual antes de alterar
                                 chamado_atual = df_c[df_c['id'] == chamado_selecionado]
                                 prioridade_antiga = chamado_atual['prioridade'].iloc[0] if not chamado_atual.empty else "N/A"
                                 
-                                # Atualizar no banco
                                 supabase.table("chamados").update({"prioridade": nova_prioridade}).eq("id", chamado_selecionado).execute()
                                 
-                                # Registrar no histórico
                                 registrar_historico(
                                     "ALTERAR PRIORIDADE",
                                     f"Chamado {chamado_selecionado} alterado de '{prioridade_antiga}' para '{nova_prioridade}'"
@@ -1621,7 +1628,6 @@ if sistema_login():
                             except Exception as e:
                                 st.error(f"Erro ao alterar prioridade: {e}")
 
-                                                # 👇 SEÇÃO DE FINALIZAÇÃO (APENAS PARA ADMIN E ASSISTENTE)
                 if st.session_state.perfil in ["Administrador", "Assistente"]:
                     st.markdown("---")
                     with st.expander("🗑️ Dar Baixa em Chamado Resolvido"):
@@ -1639,24 +1645,20 @@ if sistema_login():
                             comp_ref = info_chamado['Computador'].iloc[0] if not info_chamado.empty else "N/A"
                             
                             try:
-                                # Buscar a máquina vinculada ao chamado
                                 chamado = supabase.table("chamados").select("maquina_id").eq("id", id_excluir).execute()
                                 if chamado.data and len(chamado.data) > 0:
                                     maquina_id = chamado.data[0]["maquina_id"]
                                     
-                                    # Atualizar status da máquina para OK e limpar anomalia
                                     supabase.table("maquinas").update({
                                         "status": "OK",
                                         "anomalia": ""
                                     }).eq("id", maquina_id).execute()
                                     
-                                    # Marcar chamado como finalizado
                                     supabase.table("chamados").update({
                                         "finalizado": True,
                                         "status_chamado": "finalizado"
                                     }).eq("id", id_excluir).execute()
                                     
-                                    # 👇 REGISTRAR PROCEDIMENTO SE FOR PREENCHIDO
                                     if procedimento_realizado.strip():
                                         try:
                                             print(f"🔍 Inserindo procedimento: chamado_id={id_excluir}, maquina_id={maquina_id}, usuario={st.session_state.usuario_nome}")
@@ -1682,14 +1684,12 @@ if sistema_login():
                                             st.error(f"❌ Erro ao registrar procedimento: {e_proc}")
                                             print(f"❌ Erro detalhado: {e_proc}")
                                     
-                                    # Registrar no histórico a ação automatizada
                                     registrar_historico("FINALIZAR CHAMADO", f"Chamado {id_excluir} finalizado. Máquina {comp_ref} restaurada para OK.")
                                     
                             except Exception as e:
                                 st.error(f"❌ Erro ao finalizar chamado: {e}")
                                 print(f"❌ Erro completo: {e}")
                             
-                            # Deletar o chamado
                             supabase.table("chamados").delete().eq("id", id_excluir).execute()
                             st.toast(f"✅ Chamado {id_excluir} finalizado! Máquina restaurada para OK.", icon='✅')
                             st.rerun()
