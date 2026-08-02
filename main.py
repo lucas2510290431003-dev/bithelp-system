@@ -1394,7 +1394,7 @@ if sistema_login():
                 
                 # GRÁFICO DE BARRAS (REGISTRO DE CHAMADOS MENSAIS)
                 with col_g_infra:
-                    st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>📈 CHAMADOS REGISTRADOS MENSALMENTE</p>", unsafe_allow_html=True)
+                    st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>CHAMADOS REGISTRADOS MENSALMENTE</p>", unsafe_allow_html=True)
                     
                     df_chamados_total = carregar_todos_chamados()
                     
@@ -1473,7 +1473,7 @@ if sistema_login():
                         """, unsafe_allow_html=True)
                 
                 with col_g_anomalias:
-                    st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>🎯 TAXA DE RESOLUÇÃO (MÊS ATUAL)</p>", unsafe_allow_html=True)
+                    st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>TAXA DE RESOLUÇÃO (MÊS ATUAL)</p>", unsafe_allow_html=True)
                     
                     from datetime import datetime
                     mes_atual = datetime.now().month
@@ -1499,24 +1499,33 @@ if sistema_login():
                             (df_hist['created_at'].dt.year == ano_atual)
                         ]
                         
-                        total_chamados_mes = len(df_chamados_mes)
-                        total_resolvidos_mes = len(df_resolvidos_mes)
+                        # CALCULAR TAXA DE RESOLUÇÃO DO MÊS ATUAL (Mesma lógica do relatório Gerencial)
+                        
+                        total_chamados_mes = len(df_chamados_mes)  # TODOS os chamados do mês
+                        total_resolvidos_mes = len(df_resolvidos_mes)  # APENAS os finalizados no mês
                         
                         if total_chamados_mes > 0:
                             taxa_resolucao = (total_resolvidos_mes / total_chamados_mes) * 100
                         else:
                             taxa_resolucao = 0
                         
-                        # Garantir que a taxa não ultrapasse 100%
                         if taxa_resolucao > 100:
                             taxa_resolucao = 100
                         
                         # Criar gráfico de velocímetro
+                        # CRIA UM DATAFRAME PARA O VELOCÍMETRO
+                        df_gauge = pd.DataFrame({
+                            'Categoria': ['Resolvidos', 'Restante'],
+                            'Valor': [taxa_resolucao, 100 - taxa_resolucao]
+                        })
+                        
                         fig_gauge = px.pie(
-                            values=[taxa_resolucao, 100 - taxa_resolucao],
-                            names=['Resolvidos', 'Restante'],
+                            df_gauge,
+                            values='Valor',
+                            names='Categoria',
                             hole=0.7,
-                            color_discrete_sequence=[cor_atual, '#E0E0E0'],
+                            color='Categoria',
+                            color_discrete_map={'Resolvidos': cor_atual, 'Restante': '#E0E0E0'},
                             title=f"<b></b>"
                         )
                         fig_gauge.update_traces(
@@ -1525,27 +1534,27 @@ if sistema_login():
                             marker=dict(line=dict(color='#FFFFFF', width=2))
                         )
                         fig_gauge.update_layout(
-                            height=250,
-                            margin=dict(t=50, b=20, l=10, r=10),
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            showlegend=False,
-                            annotations=[
-                                dict(
-                                    text=f"{taxa_resolucao:.1f}%",
-                                    x=0.5,
-                                    y=0.5,
-                                    font_size=28,
-                                    font_color=cor_atual,
-                                    showarrow=False
-                                )
-                            ]
-                        )
+                                height=250,
+                                margin=dict(t=50, b=20, l=10, r=10),
+                                paper_bgcolor='rgba(0,0,0,0)',
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                showlegend=False,
+                                annotations=[
+                                    dict(
+                                        text=f"{taxa_resolucao:.0f}%",
+                                        x=0.5,
+                                        y=0.5,
+                                        font_size=28,
+                                        font_color=cor_atual,
+                                        showarrow=False
+                                    )
+                                ]
+                            )
                         st.plotly_chart(fig_gauge, use_container_width=True)
                         
-                        st.caption(f"")
-                    else:
-                        st.info("Nenhum dado disponível para calcular a taxa de resolução.")
+                        # 👇 MENSAGEM EXPLICATIVA NA COR ATUAL DA PALETA(APENAS QUANDO NÃO HÁ CHAMADOS)
+                        if total_chamados_mes == 0:
+                            st.markdown(f"<p style='color: {cor_atual}; font-size: 0.9rem; text-align: center;'>Nenhum chamado aberto neste mês.<br> A taxa de resolução será calculada quando houver chamados.</p>", unsafe_allow_html=True)
 
                 # Tabela Completa de Dados
                 st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
@@ -1690,7 +1699,7 @@ if sistema_login():
                                 st.error(f"❌ Erro ao finalizar chamado: {e}")
                                 print(f"❌ Erro completo: {e}")
                             
-                            supabase.table("chamados").delete().eq("id", id_excluir).execute()
+                            supabase.table("chamados").update({"finalizado": True}).eq("id", id_excluir).execute()
                             st.toast(f"✅ Chamado {id_excluir} finalizado! Máquina restaurada para OK.", icon='✅')
                             st.rerun()
             else: 
