@@ -1500,12 +1500,23 @@ if sistema_login():
                         ]
                         
                         # CALCULAR TAXA DE RESOLUÇÃO DO MÊS ATUAL (Mesma lógica do relatório Gerencial)
+
+                        total_chamados = len(df_chamados_mes)
+                        chamados_resolvidos = 0
                         
-                        total_chamados_mes = len(df_chamados_mes)  # TODOS os chamados do mês
-                        total_resolvidos_mes = len(df_resolvidos_mes)  # APENAS os finalizados no mês
+                        if not df_hist.empty:
+                            df_hist_mes = df_hist[
+                                (df_hist['acao'] == 'FINALIZAR CHAMADO') &
+                                (df_hist['created_at'].dt.year == ano_atual) &
+                                (df_hist['created_at'].dt.month == mes_atual)
+                            ]
+                            
+                            if not df_hist_mes.empty:
+                                ids_finalizados = df_hist_mes['detalhes'].str.extract(r'Chamado (\d+)')[0].dropna().astype(int).tolist()
+                                chamados_resolvidos = len(df_chamados_mes[df_chamados_mes['id'].isin(ids_finalizados)])
                         
-                        if total_chamados_mes > 0:
-                            taxa_resolucao = (total_resolvidos_mes / total_chamados_mes) * 100
+                        if total_chamados > 0:
+                            taxa_resolucao = (chamados_resolvidos / total_chamados) * 100
                         else:
                             taxa_resolucao = 0
                         
@@ -1552,8 +1563,8 @@ if sistema_login():
                             )
                         st.plotly_chart(fig_gauge, use_container_width=True)
                         
-                        # 👇 MENSAGEM EXPLICATIVA NA COR ATUAL DA PALETA(APENAS QUANDO NÃO HÁ CHAMADOS)
-                        if total_chamados_mes == 0:
+                        # MENSAGEM EXPLICATIVA NA COR ATUAL DA PALETA(APENAS QUANDO NÃO HÁ CHAMADOS)
+                        if total_chamados == 0:
                             st.markdown(f"<p style='color: {cor_atual}; font-size: 0.9rem; text-align: center;'>Nenhum chamado aberto neste mês.<br> A taxa de resolução será calculada quando houver chamados.</p>", unsafe_allow_html=True)
 
                 # Tabela Completa de Dados
