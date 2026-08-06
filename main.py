@@ -1013,20 +1013,52 @@ if sistema_login():
                         df_importado = df_importado.where(pd.notnull(df_importado), None)
                         
                         dados_para_inserir = df_importado.to_dict(orient='records')
-                        
+
+                        # VERIFICAÇÃO DE DUPLICIDADE
+                        resposta_existentes = supabase.table("maquinas").select("identificacao").execute()
+                        identificacoes_existentes = [item["identificacao"].strip().upper() for item in resposta_existentes.data]
+
+                        for linha in dados_para_inserir:
+                            ident = linha.get("identificacao", "").strip().upper()
+                            if ident in identificacoes_existentes:
+                                st.error(f"❌ Máquina '{ident}' já está cadastrada! Importação cancelada.")
+                                st.stop()
+
+                        # PROCESSAMENTO DOS DADOS 
                         for linha in dados_para_inserir:
                             for chave, valor in linha.items():
-                                if pd.isna(valor):
-                                    linha[chave] = None
-                        
+                                # 1. TRATA VALORES VAZIOS
+                                if pd.isna(valor) or valor == '' or valor is None:
+                                    # Colunas numéricas recebem 0
+                                    if chave in ['qtde_memoria_ram_gb', 'qtde_ssd_gb', 'qtde_hd_gb']:
+                                        linha[chave] = 0
+                                    # Colunas de texto recebem string vazia
+                                    else:
+                                        linha[chave] = ''
+
+                                # CONVERTE COLUNAS NUMÉRICAS PARA NÚMERO
+                                if chave in ['qtde_memoria_ram_gb', 'qtde_ssd_gb', 'qtde_hd_gb']:
+                                    if linha[chave] not in ['', None]:
+                                        try:
+                                            valor_num = float(linha[chave])
+                                            if valor_num.is_integer():
+                                                linha[chave] = int(valor_num)
+                                            else:
+                                                linha[chave] = valor_num
+                                        except:
+                                            linha[chave] = 0
+
+                        # INSERÇÃO
                         supabase.table("maquinas").insert(dados_para_inserir).execute()
-                        registrar_historico("IMPORTAR CSV", f"Importou lote de {len(df_importado)} máquinas via planilha")
-                        st.success(f"✅ Importação concluída! {len(df_importado)} máquinas adicionadas.")
+                        registrar_historico("IMPORTAR CSV", f"Importou lote de {len(dados_para_inserir)} máquinas via planilha")
+                        st.success(f"✅ Importação concluída! {len(dados_para_inserir)} máquinas adicionadas.")
+                        time.sleep(1)
                         st.rerun()
         with col_csv_out:
             st.markdown("**Exportar Dados Atuais**")
             st.markdown("<br><br>", unsafe_allow_html=True)
-            csv_data = df.to_csv(index=False).encode('utf-8-sig')
+            # Formata todos os floats para inteiros (sem casas decimais)
+            csv_data = df.to_csv(index=False, float_format='%.0f').encode('utf-8-sig')
             st.download_button(label="BAIXAR PLANILHA CSV COMPLETA", data=csv_data, file_name='inventario_bithelp.csv', use_container_width=True)
 
     @st.dialog("➕ Cadastro e Edição Detalhada", width="large")
@@ -1036,7 +1068,7 @@ if sistema_login():
             mapa_maquinas = {str(row['identificacao']).upper(): row for _, row in df.iterrows() if str(row['identificacao']).strip() != ""}
             modo = st.radio("Ação:", ["Novo Cadastro", "Editar Existente"], horizontal=True)
              
-            lista_campos = ["identificacao", "mac", "laboratorio", "familia_cpu", "modelo_cpu", "fabricante", "geracao", "qtde_memoria_ram_gb", "armazenamento_tipo", "qtde_ssd_gb", "qtde_hd_gb", "sistema_operacional", "status", "anomalia", "observacao"]
+            lista_campos = ["identificacao", "mac", "numero_serie", "laboratorio", "familia_cpu", "modelo_cpu", "fabricante", "geracao", "qtde_memoria_ram_gb", "armazenamento_tipo", "qtde_ssd_gb", "qtde_hd_gb", "sistema_operacional", "status", "anomalia", "observacao"]
             vals = {k: "" for k in lista_campos}
             vals["status"] = "OK"
             vals["sistema_operacional"] = "WINDOWS 11"
@@ -1057,96 +1089,116 @@ if sistema_login():
                     return ""
                 return str(valor).upper()
 
-            with st.form("form_cadastro_full", clear_on_submit=(modo == "Novo Cadastro")):
-                c1, c2, c3 = st.columns(3)
-                with c1: new_id = st.text_input("Identificação (ID/TAG)*", value=garantir_string(vals["identificacao"]))
-                with c2: new_mac = st.text_input("Endereço MAC", value=garantir_string(vals["mac"]))
-                with c3: new_lab = st.text_input("Laboratório*", value=garantir_string(vals["laboratorio"]))
+        with st.form("form_cadastro_full", clear_on_submit=(modo == "Novo Cadastro")):
+            c1, c2, c3, c4 = st.columns(4)
+            with c1: 
+                new_id = st.text_input("Identificação (ID/TAG)*", value=garantir_string(vals["identificacao"]))
+            with c2: 
+                new_mac = st.text_input("Endereço MAC", value=garantir_string(vals["mac"]))
+            with c3: 
+                new_serial = st.text_input("Número de Série", value=garantir_string(vals.get("numero_serie", "")))
+            with c4: 
+                new_lab = st.text_input("Laboratório*", value=garantir_string(vals["laboratorio"]))
 
-                c4, c5, c6, c7 = st.columns(4)
-                with c4: new_fam = st.text_input("Família CPU*", value=garantir_string(vals["familia_cpu"]))
-                with c5: new_mod = st.text_input("Modelo CPU", value=garantir_string(vals["modelo_cpu"]))
-                with c6: new_fab = st.text_input("Fabricante", value=garantir_string(vals["fabricante"]))
-                with c7: new_ger = st.text_input("Geração", value=garantir_string(vals["geracao"]))
+            c5, c6, c7 = st.columns(3)
+            with c5: 
+                new_fam = st.text_input("Família CPU*", value=garantir_string(vals["familia_cpu"]))
+            with c6: 
+                new_mod = st.text_input("Modelo CPU", value=garantir_string(vals["modelo_cpu"]))
+            with c7: 
+                new_fab = st.text_input("Fabricante", value=garantir_string(vals["fabricante"]))
+
+            c8, c9, c10 = st.columns(3)
+            with c8: 
+                new_ger = st.text_input("Geração", value=garantir_string(vals["geracao"]))
+            with c9: 
+                new_ram = st.text_input("RAM (GB)", value=garantir_string(vals.get("qtde_memoria_ram_gb", "")))
+            with c10:
+                opcoes_disco = ["SSD", "HD", "SSD + HD", "SSD NVMe M.2", "SSD / HD", "SSD "]
+                val_atual_disco = garantir_string(vals.get("armazenamento_tipo", ""))
                 
-                c8, c9, col_d1, col_d2 = st.columns(4)
-                with c8:
-                    new_ram = st.text_input("RAM (GB)", value=garantir_string(vals.get("qtde_memoria_ram_gb", "")))
-                with c9:
-                    opcoes_disco = ["SSD", "HD", "SSD + HD", "SSD NVMe M.2", "SSD / HD", "SSD "]
-                    val_atual_disco = garantir_string(vals.get("armazenamento_tipo", ""))
-                    
-                    if val_atual_disco not in opcoes_disco and val_atual_disco.strip() != "":
-                        opcoes_disco.append(val_atual_disco)
-                    
-                    try:
-                        index_disco = opcoes_disco.index(val_atual_disco) if val_atual_disco in opcoes_disco else 0
-                    except ValueError:
-                        index_disco = 0
-                    
-                    new_tipo_arm = st.selectbox("Tipo Disco", opcoes_disco, index=index_disco)
-                with col_d1:
-                    new_ssd = st.text_input("SSD (GB)", value=garantir_string(vals.get("qtde_ssd_gb", "")))
-                with col_d2:
-                    new_hd = st.text_input("HD (GB)", value=garantir_string(vals.get("qtde_hd_gb", "")))
+                if val_atual_disco not in opcoes_disco and val_atual_disco.strip() != "":
+                    opcoes_disco.append(val_atual_disco)
+                
+                try:
+                    index_disco = opcoes_disco.index(val_atual_disco) if val_atual_disco in opcoes_disco else 0
+                except ValueError:
+                    index_disco = 0
+                
+                new_tipo_arm = st.selectbox("Tipo Disco", opcoes_disco, index=index_disco)
 
-                c12, c13, c14 = st.columns(3)
-                with c12:
-                    opcoes_so = ["WINDOWS 11", "WINDOWS 10", "WINDOWS 7", "LINUX", "MACOS"]
-                    val_so_atual = str(vals["sistema_operacional"]).strip().upper()
-                    if val_so_atual not in opcoes_so:
-                        opcoes_so.append(val_so_atual) if val_so_atual != "" else None
-                    new_so = st.selectbox("Sistema Operacional*", opcoes_so, index=opcoes_so.index(val_so_atual) if val_so_atual in opcoes_so else 0)
-                with c13:
-                    opcoes_status = ["OK", "PENDENTE DE MANUTENÇÃO", "INATIVO", "EM REPARO", "PENDENTE"]
-                    val_st_atual = str(vals["status"]).strip().upper()
-                    if val_st_atual not in opcoes_status:
-                        opcoes_status.append(val_st_atual) if val_st_atual != "" else None
-                    new_status = st.selectbox("Status*", opcoes_status, index=opcoes_status.index(val_st_atual) if val_st_atual in opcoes_status else 0)
-                with c14:
-                    new_anomalia = st.text_input("Anomalia Atual", value=garantir_string(vals.get("anomalia", "")))
+            c11, c12, c13 = st.columns(3)
+            with c11:
+                new_ssd = st.text_input("SSD (GB)", value=garantir_string(vals.get("qtde_ssd_gb", "")))
+            with c12:
+                new_hd = st.text_input("HD (GB)", value=garantir_string(vals.get("qtde_hd_gb", "")))
+            with c13:
+                opcoes_so = ["WINDOWS 11", "WINDOWS 10", "WINDOWS 7", "LINUX", "MACOS"]
+                val_so_atual = str(vals["sistema_operacional"]).strip().upper()
+                if val_so_atual not in opcoes_so:
+                    opcoes_so.append(val_so_atual) if val_so_atual != "" else None
+                new_so = st.selectbox("Sistema Operacional*", opcoes_so, index=opcoes_so.index(val_so_atual) if val_so_atual in opcoes_so else 0)
 
+            c14, c15, c16 = st.columns(3)
+            with c14:
+                opcoes_status = ["OK", "PENDENTE DE MANUTENÇÃO", "INATIVO", "EM REPARO", "PENDENTE"]
+                val_st_atual = str(vals["status"]).strip().upper()
+                if val_st_atual not in opcoes_status:
+                    opcoes_status.append(val_st_atual) if val_st_atual != "" else None
+                new_status = st.selectbox("Status*", opcoes_status, index=opcoes_status.index(val_st_atual) if val_st_atual in opcoes_status else 0)
+            with c15:
+                new_anomalia = st.text_input("Anomalia Atual", value=garantir_string(vals.get("anomalia", "")))
+            with c16:
                 new_obs = st.text_area("Observações Adicionais", value=garantir_string(vals["observacao"]))
 
+            st.markdown("---")
+            txt_btn = "SALVAR ALTERAÇÕES TÉCNICAS" if modo == "Editar Existente" else "CADASTRAR NOVO ATIVO"
+            if st.form_submit_button(txt_btn, use_container_width=True, type="primary"):
+                if new_id and new_lab and new_fam:
+                    try:
+                        ram_val = int(new_ram.split('.')[0]) if str(new_ram).strip().replace('.0','').isdigit() else None
+                        ssd_val = int(new_ssd.split('.')[0]) if str(new_ssd).strip().replace('.0','').isdigit() else None
+                        hd_val = int(new_hd.split('.')[0]) if str(new_hd).strip().replace('.0','').isdigit() else None
 
-                st.markdown("---")
-                txt_btn = "SALVAR ALTERAÇÕES TÉCNICAS" if modo == "Editar Existente" else "CADASTRAR NOVO ATIVO"
-                if st.form_submit_button(txt_btn, use_container_width=True, type="primary"):
-                    if new_id and new_lab and new_fam:
-                        try:
-                            ram_val = int(new_ram.split('.')[0]) if str(new_ram).strip().replace('.0','').isdigit() else None
-                            ssd_val = int(new_ssd.split('.')[0]) if str(new_ssd).strip().replace('.0','').isdigit() else None
-                            hd_val = int(new_hd.split('.')[0]) if str(new_hd).strip().replace('.0','').isdigit() else None
-
-                            payload = {
-                                "identificacao": new_id.upper(), "mac": new_mac.upper(), "laboratorio": new_lab.upper(),
-                                "familia_cpu": new_fam.upper(), "modelo_cpu": new_mod.upper(), "fabricante": new_fab.upper(),
-                                "geracao": new_ger.upper(), "qtde_memoria_ram_gb": ram_val, 
-                                "armazenamento_tipo": new_tipo_arm.upper(), "qtde_ssd_gb": ssd_val, 
-                                "qtde_hd_gb": hd_val, "sistema_operacional": new_so.upper(),
-                                "status": new_status.upper(), "anomalia": new_anomalia.upper(), "observacao": new_obs.upper()
-                            }
+                        payload = {
+                            "identificacao": new_id.upper(),
+                            "mac": new_mac.upper(),
+                            "numero_serie": new_serial.upper(),
+                            "laboratorio": new_lab.upper(),
+                            "familia_cpu": new_fam.upper(),
+                            "modelo_cpu": new_mod.upper(),
+                            "fabricante": new_fab.upper(),
+                            "geracao": new_ger.upper(),
+                            "qtde_memoria_ram_gb": ram_val,
+                            "armazenamento_tipo": new_tipo_arm.upper(),
+                            "qtde_ssd_gb": ssd_val,
+                            "qtde_hd_gb": hd_val,
+                            "sistema_operacional": new_so.upper(),
+                            "status": new_status.upper(),
+                            "anomalia": new_anomalia.upper(),
+                            "observacao": new_obs.upper()
+                        }
+                        
+                        if modo == "Editar Existente":
+                            supabase.table("maquinas").update(payload).eq("id", maquina_selecionada['id']).execute()
+                            registrar_historico("EDIÇÃO DE ATIVO", f"Editou propriedades do computador {new_id.upper()}")
+                            st.toast("Dados alterados!", icon='💾')
+                        else:
+                            # 👇 VERIFICA SE A IDENTIFICAÇÃO JÁ EXISTE
+                            existe = supabase.table("maquinas").select("id").eq("identificacao", new_id.upper()).execute()
+                            if existe.data and len(existe.data) > 0:
+                                st.error(f"❌ Máquina com identificação '{new_id.upper()}' já está cadastrada!")
+                                st.stop()
                             
-                            if modo == "Editar Existente":
-                                supabase.table("maquinas").update(payload).eq("id", maquina_selecionada['id']).execute()
-                                registrar_historico("EDIÇÃO DE ATIVO", f"Editou propriedades do computador {new_id.upper()}")
-                                st.toast("Dados alterados!", icon='💾')
-                            else:
-                                # 👇 VERIFICA SE A IDENTIFICAÇÃO JÁ EXISTE
-                                existe = supabase.table("maquinas").select("id").eq("identificacao", new_id.upper()).execute()
-                                if existe.data and len(existe.data) > 0:
-                                    st.error(f"❌ Máquina com identificação '{new_id.upper()}' já está cadastrada!")
-                                    st.stop()
-                                
-                                # 👇 SE NÃO EXISTIR, FAZ O CADASTRO
-                                supabase.table("maquinas").insert(payload).execute()
-                                registrar_historico("CADASTRO DE ATIVO", f"Cadastrou novo computador {new_id.upper()} no Lab {new_lab.upper()}")
-                                st.cache_data.clear()
-                            st.rerun()
-                        except Exception as e: 
-                            st.error(f"Erro: {e}")
-                    else: 
-                        st.warning("Preencha os campos obrigatórios (*)")
+                            # 👇 SE NÃO EXISTIR, FAZ O CADASTRO
+                            supabase.table("maquinas").insert(payload).execute()
+                            registrar_historico("CADASTRO DE ATIVO", f"Cadastrou novo computador {new_id.upper()} no Lab {new_lab.upper()}")
+                            st.cache_data.clear()
+                        st.rerun()
+                    except Exception as e: 
+                        st.error(f"Erro: {e}")
+                else: 
+                    st.warning("Preencha os campos obrigatórios (*)")
 
         with col_exc:
             st.markdown("**Remover Ativo**")
@@ -1156,7 +1208,9 @@ if sistema_login():
                 if st.button("EXCLUIR MÁQUINA", use_container_width=True):
                     supabase.table("maquinas").delete().eq("id", mapa_maquinas[maq_exc]['id']).execute()
                     registrar_historico("REMOVER ATIVO", f"Deletou a máquina {maq_exc} permanentemente")
-                    st.toast("Removido!", icon='🗑️')
+                    # 👇 ADICIONE A MENSAGEM COM DELAY
+                    st.success(f"✅ Máquina '{maq_exc}' removida com sucesso!")
+                    time.sleep(1)
                     st.cache_data.clear()
                     st.rerun()
 
