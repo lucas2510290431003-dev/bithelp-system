@@ -418,7 +418,7 @@ if sistema_login():
 
     if df is None or df.empty:
         st.warning("⚠️ Banco de dados vazio ou erro na conexão.")
-        st.stop()
+        # st.stop()
 
     # --- CONFIGURAÇÃO DA PALETA DE CORES DINÂMICA ---
     paletas_config = {
@@ -979,20 +979,40 @@ if sistema_login():
     def modal_planilhas():
         col_csv_in, col_csv_out = st.columns(2)
         with col_csv_in:
-            st.markdown("**Importar Inventário (CSV)**")
+            st.markdown("**Importar Inventário (CSV ou XLSX)**")
             with st.form("import_csv_form"):
-                arquivo_csv = st.file_uploader("Selecione o arquivo CSV", type="csv")
+                #  ACEITA CSV E XLSX
+                arquivo_csv = st.file_uploader("Selecione o arquivo XLSX", type=["xlsx"])
+                # arquivo_csv = st.file_uploader("Selecione o arquivo CSV ou XLSX", type=["csv", "xlsx"])
                 if st.form_submit_button("Confirmar Importação", use_container_width=True, type="primary"):
                     if arquivo_csv:
-                        import csv
-                        try:
-                            file_content = arquivo_csv.getvalue().decode('utf-8-sig')
-                            sniffer = csv.Sniffer()
-                            delimiter = sniffer.sniff(file_content).delimiter
-                        except:
-                            delimiter = ','
+                        #  DETECTA O TIPO DE ARQUIVO
+                        if arquivo_csv.name.endswith('.xlsx'):
+                            # 👇 LÊ XLSX DIRETO
+                            try:
+                                df_importado = pd.read_excel(arquivo_csv, engine='openpyxl')
+                            except Exception as e:
+                                st.error(f"❌ Erro ao ler XLSX: {e}")
+                                st.stop()
+                        else:
+                            #  LÊ CSV (CÓDIGO EXISTENTE)
+                            import csv
+                            try:
+                                file_content = arquivo_csv.getvalue().decode('utf-8-sig')
+                                sniffer = csv.Sniffer()
+                                delimiter = sniffer.sniff(file_content).delimiter
+                            except:
+                                delimiter = ','
+                            df_importado = pd.read_csv(arquivo_csv, sep=delimiter, encoding='utf-8-sig')
                         
-                        df_importado = pd.read_csv(arquivo_csv, sep=delimiter, encoding='utf-8-sig')
+                        #  LIMPEZA DOS NOMES DAS COLUNAS (REMOVE ESPAÇOS)
+                        df_importado.columns = df_importado.columns.str.strip().str.replace(' ', '')
+                        
+                        # REMOVE COLUNAS NÃO NOMEADAS (Unnamed)
+                        df_importado = df_importado.loc[:, ~df_importado.columns.str.contains('^Unnamed')]
+        
+                        # REMOVE COLUNAS VAZIAS
+                        df_importado = df_importado.dropna(axis=1, how='all')
                         
                         if 'id' in df_importado.columns:
                             df_importado = df_importado.drop(columns=['id'])
@@ -1024,29 +1044,20 @@ if sistema_login():
                                 st.error(f"❌ Máquina '{ident}' já está cadastrada! Importação cancelada.")
                                 st.stop()
 
-                        # PROCESSAMENTO DOS DADOS 
+                        #  GARANTE QUE NÚMEROS SÃO INTEIROS
                         for linha in dados_para_inserir:
-                            for chave, valor in linha.items():
-                                # 1. TRATA VALORES VAZIOS
-                                if pd.isna(valor) or valor == '' or valor is None:
-                                    # Colunas numéricas recebem 0
-                                    if chave in ['qtde_memoria_ram_gb', 'qtde_ssd_gb', 'qtde_hd_gb']:
-                                        linha[chave] = 0
-                                    # Colunas de texto recebem string vazia
-                                    else:
-                                        linha[chave] = ''
-
-                                # CONVERTE COLUNAS NUMÉRICAS PARA NÚMERO
-                                if chave in ['qtde_memoria_ram_gb', 'qtde_ssd_gb', 'qtde_hd_gb']:
-                                    if linha[chave] not in ['', None]:
+                            for col in ['qtde_memoria_ram_gb', 'qtde_ssd_gb', 'qtde_hd_gb']:
+                                if col in linha:
+                                    valor = linha[col]
+                                    if isinstance(valor, float):
+                                        linha[col] = int(valor) if valor.is_integer() else int(valor)
+                                    elif isinstance(valor, str):
                                         try:
-                                            valor_num = float(linha[chave])
-                                            if valor_num.is_integer():
-                                                linha[chave] = int(valor_num)
-                                            else:
-                                                linha[chave] = valor_num
+                                            linha[col] = int(float(valor))
                                         except:
-                                            linha[chave] = 0
+                                            linha[col] = 0
+                                    elif valor is None or valor == '':
+                                        linha[col] = 0
 
                         # INSERÇÃO
                         supabase.table("maquinas").insert(dados_para_inserir).execute()
@@ -1057,7 +1068,6 @@ if sistema_login():
         with col_csv_out:
             st.markdown("**Exportar Dados Atuais**")
             st.markdown("<br><br>", unsafe_allow_html=True)
-            # Formata todos os floats para inteiros (sem casas decimais)
             csv_data = df.to_csv(index=False, float_format='%.0f').encode('utf-8-sig')
             st.download_button(label="BAIXAR PLANILHA CSV COMPLETA", data=csv_data, file_name='inventario_bithelp.csv', use_container_width=True)
 
@@ -1313,32 +1323,35 @@ if sistema_login():
     # --- ABA 1: DASHBOARD OTIMIZADA ---
     if aba_dash:
         with aba_dash:
-            df_filtrado = df.copy()
-            df_filtrado["laboratorio"] = df_filtrado["laboratorio"].apply(to_upper_safe)
-            df_filtrado["status"] = df_filtrado["status"].apply(to_upper_safe).replace('PENDENTE', 'PENDENTE DE MANUTENÇÃO')
-            df_filtrado["sistema_operacional"] = df_filtrado["sistema_operacional"].apply(to_upper_safe)
-            df_filtrado["familia_cpu"] = df_filtrado["familia_cpu"].apply(to_upper_safe)
-            df_filtrado["geracao"] = df_filtrado["geracao"].apply(to_upper_safe)
-            df_filtrado["armazenamento_tipo"] = df_filtrado["armazenamento_tipo"].apply(to_upper_safe)
-            df_filtrado["anomalia"] = df_filtrado["anomalia"].apply(to_upper_safe)
-            
-            df_filtrado["qtde_memoria_ram_gb"] = pd.to_numeric(df_filtrado["qtde_memoria_ram_gb"], errors='coerce').fillna(0)
-            df_filtrado["qtde_ssd_gb"] = pd.to_numeric(df_filtrado["qtde_ssd_gb"], errors='coerce').fillna(0)
-            df_filtrado["qtde_hd_gb"] = pd.to_numeric(df_filtrado["qtde_hd_gb"], errors='coerce').fillna(0)
+            if df.empty:
+                st.info("📭 Banco de dados vazio. Por favor, vá em 'Painel Administrativo' → 'Importação e Exportação de Planilhas (CSV)' para importar os dados.")
+            else:
+                df_filtrado = df.copy()
+                df_filtrado["laboratorio"] = df_filtrado["laboratorio"].apply(to_upper_safe)
+                df_filtrado["status"] = df_filtrado["status"].apply(to_upper_safe).replace('PENDENTE', 'PENDENTE DE MANUTENÇÃO')
+                df_filtrado["sistema_operacional"] = df_filtrado["sistema_operacional"].apply(to_upper_safe)
+                df_filtrado["familia_cpu"] = df_filtrado["familia_cpu"].apply(to_upper_safe)
+                df_filtrado["geracao"] = df_filtrado["geracao"].apply(to_upper_safe)
+                df_filtrado["armazenamento_tipo"] = df_filtrado["armazenamento_tipo"].apply(to_upper_safe)
+                df_filtrado["anomalia"] = df_filtrado["anomalia"].apply(to_upper_safe)
+                
+                df_filtrado["qtde_memoria_ram_gb"] = pd.to_numeric(df_filtrado["qtde_memoria_ram_gb"], errors='coerce').fillna(0)
+                df_filtrado["qtde_ssd_gb"] = pd.to_numeric(df_filtrado["qtde_ssd_gb"], errors='coerce').fillna(0)
+                df_filtrado["qtde_hd_gb"] = pd.to_numeric(df_filtrado["qtde_hd_gb"], errors='coerce').fillna(0)
 
-            if f_lab: df_filtrado = df_filtrado[df_filtrado["laboratorio"].isin(f_lab)]
-            if f_status: df_filtrado = df_filtrado[df_filtrado["status"].isin(f_status)]
-            if f_so: df_filtrado = df_filtrado[df_filtrado["sistema_operacional"].isin(f_so)]
-            if f_familia: df_filtrado = df_filtrado[df_filtrado["familia_cpu"].isin(f_familia)]
-            
-            
+                if f_lab: df_filtrado = df_filtrado[df_filtrado["laboratorio"].isin(f_lab)]
+                if f_status: df_filtrado = df_filtrado[df_filtrado["status"].isin(f_status)]
+                if f_so: df_filtrado = df_filtrado[df_filtrado["sistema_operacional"].isin(f_so)]
+                if f_familia: df_filtrado = df_filtrado[df_filtrado["familia_cpu"].isin(f_familia)]
+                
+                
 
-            with st.container(key="painel_bi_container"):
-                st.markdown(f"""
-                    <p style='color: {cor_atual}; font-weight: 800; margin-top: -5px; margin-bottom: 20px; font-size:1.2rem; text-transform: uppercase;'>
-                        📊 PAINEL DE GESTÃO E INTELIGÊNCIA DE INFRAESTRUTURA DE TI
-                    </p>
-                """, unsafe_allow_html=True)
+                with st.container(key="painel_bi_container"):
+                    st.markdown(f"""
+                        <p style='color: {cor_atual}; font-weight: 800; margin-top: -5px; margin-bottom: 20px; font-size:1.2rem; text-transform: uppercase;'>
+                            📊 PAINEL DE GESTÃO E INTELIGÊNCIA DE INFRAESTRUTURA DE TI
+                        </p>
+                    """, unsafe_allow_html=True)
                 
                 # --- CARDS DE INFRAESTRUTURA ---
                 col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
