@@ -1353,292 +1353,314 @@ if sistema_login():
                         </p>
                     """, unsafe_allow_html=True)
                 
-                # --- CARDS DE INFRAESTRUTURA ---
-                col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
-                total_ativos = len(df_filtrado)
-                
-                with col_kpi1:
-                    ativos_operacionais = len(df_filtrado[df_filtrado["status"] == "OK"])
-                    pct_operacionais = (ativos_operacionais / total_ativos * 100) if total_ativos > 0 else 0
-                    st.markdown(f'<div class="metric-card"><div class="metric-title">Ativos Saudáveis (OK)</div><div class="metric-value" style="color: #198754;">{ativos_operacionais} <span style="font-size:1.0rem; font-weight:normal;">({pct_operacionais:.1f}%)</span></div></div>', unsafe_allow_html=True)
-                
-                with col_kpi2:
-                    ativos_parados = len(df_filtrado[df_filtrado["status"] != "OK"])
-                    pct_parados = (ativos_parados / total_ativos * 100) if total_ativos > 0 else 0
-                    st.markdown(f'<div class="metric-card"><div class="metric-title">Fora de Conformidade</div><div class="metric-value" style="color: #DC2626;">{ativos_parados} <span style="font-size:1.0rem; font-weight:normal;">({pct_parados:.1f}%)</span></div></div>', unsafe_allow_html=True)
-                
-                with col_kpi3:
-                    legado_count = len(df_filtrado[df_filtrado["geracao"].isin(["1ª", "2ª"])])
-                    st.markdown(f'<div class="metric-card"><div class="metric-title">Máquinas Obsoletas</div><div class="metric-value" style="color: {cor_atual};">{legado_count} un</div></div>', unsafe_allow_html=True)
-                
-                with col_kpi4:
-                    df_chamados_total = carregar_chamados()
-                    if not df_chamados_total.empty:
-                        chamados_abertos = len(df_chamados_total)
-                        st.markdown(f'<div class="metric-card"><div class="metric-title">Chamados em Aberto</div><div class="metric-value" style="color: #FF6B6B;">{chamados_abertos}</div></div>', unsafe_allow_html=True)
-                    else:
-                        st.markdown(f'<div class="metric-card"><div class="metric-title">Chamados em Aberto</div><div class="metric-value" style="color: #FF6B6B;">0</div></div>', unsafe_allow_html=True)
-
-                st.markdown("<br>", unsafe_allow_html=True)
-
-                # --- MIX DE GRÁFICOS EM 3 COLUNAS ---
-                col_g_esquerda, col_g_centro, col_g_direita = st.columns([1.3, 1.3, 1.4])
-               
-               # GRÁFICO DE GERAÇÃO CPU 
-                with col_g_esquerda:
-                    if not df_filtrado.empty:
-                        geracao_counts = df_filtrado[df_filtrado["geracao"] != ""].value_counts("geracao").reset_index(name="qtd")
-                        fig_ger = px.bar(geracao_counts, x="geracao", y="qtd", title="<b>MATRIZ DE OBSOLESCÊNCIA DE CPU</b>")
-                        fig_ger.update_traces(
-                            marker_color=cor_atual, 
-                            texttemplate='%{y}', 
-                            textposition='inside',
-                            textfont=dict(size=15, color="white")
-                        )
-                        fig_ger.update_layout(
-                            showlegend=False, 
-                            height=270, 
-                            margin=dict(t=35, b=5, l=5, r=5),
-                            title={'x': 0.45, 'xanchor': 'center'},
-                            paper_bgcolor='rgba(0,0,0,0)', 
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            yaxis=dict(visible=False),
-                            xaxis=dict(title="Geração")
-                        )
-                        fig_ger.update_xaxes(showgrid=False)
-                        fig_ger.update_yaxes(showgrid=False, visible=False)
-                        st.plotly_chart(fig_ger, use_container_width=True)
-
-                # GRÁFICO DE STATUS OPERACIONAL (DONUT) - Gráfico de Rosca
-                with col_g_centro:
-                    if not df_filtrado.empty:
-                        status_counts = df_filtrado["status"].value_counts().reset_index(name="qtd")
-                        fig_st_donut = px.pie(status_counts, values='qtd', names='status', hole=0.5, title="<b>STATUS OPERACIONAL GERAL</b>", color='status', color_discrete_map=mapa_cores_plotly)
-                        fig_st_donut.update_traces(
-                        textfont=dict(size=15, color="white"),
-                        texttemplate='%{percent:.0%}',  # SEM CASAS DECIMAIS
-                        hovertemplate='<b>Status: %{label}</b><br>Quantidade: %{value}<br>Percentual: %{percent:.0%}<extra></extra>'
-    )
-                        fig_st_donut.update_layout(
-                            showlegend=True, 
-                            height=270,
-                            margin=dict(t=35, b=5, l=5, r=5),
-                            title={'x': 0.5, 'xanchor': 'center'},
-                            legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(size=14)),
-                            paper_bgcolor='rgba(0,0,0,0)', 
-                            plot_bgcolor='rgba(0,0,0,0)'
-                        )
-                        st.plotly_chart(fig_st_donut, use_container_width=True)
-                        
-               # GRÁFICO DE CONVÊNIO DE SISTEMAS OPERACIONAIS - Gráfico de Barras        
-                with col_g_direita:
-                    if not df_filtrado.empty:
-                        so_data = df_filtrado["sistema_operacional"].value_counts().reset_index(name="qtd")
-                        fig_so = px.bar(so_data, x='qtd', y='sistema_operacional', orientation='h', text_auto=True, title="<b>DISTRIBUIÇÃO SO</b>")
-                        fig_so.update_traces(
-                            marker_color=cor_atual,
-                            textposition="inside",
-                            textfont=dict(size=15, color="white"),
-                            hovertemplate='<b>SO: %{y}</b><br>Quantidade: %{x}<extra></extra>'
-                        )
-                        fig_so.update_layout(
-                            title_x=0.33, 
-                            height=270, 
-                            bargap=0.35,
-                            margin=dict(t=35, b=5, l=5, r=5), 
-                            paper_bgcolor='rgba(0,0,0,0)', 
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            xaxis=dict(visible=False),
-                            yaxis=dict(title="")
-                        ) 
-                        fig_so.update_xaxes(showgrid=False, title="")
-                        fig_so.update_yaxes(showgrid=False, title="")
-                        st.plotly_chart(fig_so, use_container_width=True)
-
-                # --- SEÇÃO INFERIOR COMPLEMENTAR DE MANUTENÇÃO ---
-                st.markdown("<hr style='margin: 15px 0; border-color: rgba(128,128,128,0.2);'>", unsafe_allow_html=True)
-                col_g_infra, col_g_anomalias = st.columns([2.1, 1.9])
-                
-                # GRÁFICO DE BARRAS (REGISTRO DE CHAMADOS MENSAIS)
-                with col_g_infra:
-                    st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>CHAMADOS REGISTRADOS MENSALMENTE</p>", unsafe_allow_html=True)
+                    # --- CARDS DE INFRAESTRUTURA ---
+                    col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
+                    total_ativos = len(df_filtrado)
                     
-                    df_chamados_total = carregar_todos_chamados()
+                    with col_kpi1:
+                        ativos_operacionais = len(df_filtrado[df_filtrado["status"] == "OK"])
+                        pct_operacionais = (ativos_operacionais / total_ativos * 100) if total_ativos > 0 else 0
+                        st.markdown(f'<div class="metric-card"><div class="metric-title">Ativos Saudáveis (OK)</div><div class="metric-value" style="color: #198754;">{ativos_operacionais} <span style="font-size:1.0rem; font-weight:normal;">({pct_operacionais:.1f}%)</span></div></div>', unsafe_allow_html=True)
                     
-                    if not df_chamados_total.empty:
-                        df_mensal = df_chamados_total.copy()
-                        df_mensal['created_at'] = pd.to_datetime(df_mensal['created_at'])
-                        
-                        meses_pt = {
-                            'Jan': 'Jan', 'Feb': 'Fev', 'Mar': 'Mar', 'Apr': 'Abr',
-                            'May': 'Mai', 'Jun': 'Jun', 'Jul': 'Jul', 'Aug': 'Ago',
-                            'Sep': 'Set', 'Oct': 'Out', 'Nov': 'Nov', 'Dec': 'Dez'
-                        }
-                        
-                        df_mensal['mes_num'] = df_mensal['created_at'].dt.month
-                        df_mensal['ano'] = df_mensal['created_at'].dt.year
-                        df_mensal['mes_ano'] = df_mensal['created_at'].dt.strftime('%b')
-                        
-                        for en, pt in meses_pt.items():
-                            df_mensal['mes_ano'] = df_mensal['mes_ano'].str.replace(en, pt)
-                        
-                        df_mensal['data_ref'] = df_mensal['created_at'].dt.to_period('M')
-                        df_agrupado = df_mensal.groupby(['mes_ano', 'data_ref']).size().reset_index(name='quantidade')
-                        df_agrupado = df_agrupado.sort_values('data_ref')
-                        
-                        fig_barras = px.bar(
-                            df_agrupado,
-                            x='mes_ano',
-                            y='quantidade',
-                            title="<b></b>",
-                            labels={'mes_ano': 'Mês/Ano', 'quantidade': 'Chamados'},
-                            text='quantidade',
-                            color_discrete_sequence=[cor_atual]
-                        )
-
-                        fig_barras.update_traces(
-                            textposition='inside',
-                            textfont=dict(size=15, color='white'),
-                            hovertemplate='<b>Mês: %{x}</b><br>Chamados: %{y}<extra></extra>'
-                        )
-                        
-                        fig_barras.update_layout(
-                            height=260,
-                            margin=dict(t=50, b=25, l=5, r=5),  # ESPAÇO PARA O RÓTULO
-                            title={'x': 0.5, 'xanchor': 'center'},
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            xaxis=dict(showgrid=False, title=""),
-                            yaxis=dict(showgrid=False, visible=False)
-                        )
-                        st.plotly_chart(fig_barras, use_container_width=True)
-                        
-                        total_chamados = len(df_chamados_total)
-                        st.caption(f"")
-                    else:
-                        st.markdown(f"""
-                            <div style="
-                                border: 3px dashed {cor_atual}; 
-                                border-radius: 10px; 
-                                padding: 40px 20px; 
-                                text-align: center; 
-                                background-color: {cor_secundaria}15;
-                                height: 260px;
-                                display: flex;
-                                flex-direction: column;
-                                justify-content: center;
-                                align-items: center;
-                            ">
-                                <span style="font-size: 2.5rem; margin-bottom: 10px;">📭</span>
-                                <p style="margin:0; font-weight:700; font-size:1.1rem; color:{cor_atual}; text-transform: uppercase;">
-                                    Nenhum chamado registrado
-                                </p>
-                                <p style="margin:5px 0 0 0; color:inherit; font-size:0.95rem; opacity: 0.85;">
-                                    Abra chamados para ver o histórico mensal
-                                </p>
-                            </div>
-                        """, unsafe_allow_html=True)
-                
-                with col_g_anomalias:
-                    st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>TAXA DE RESOLUÇÃO (MÊS ATUAL)</p>", unsafe_allow_html=True)
+                    with col_kpi2:
+                        ativos_parados = len(df_filtrado[df_filtrado["status"] != "OK"])
+                        pct_parados = (ativos_parados / total_ativos * 100) if total_ativos > 0 else 0
+                        st.markdown(f'<div class="metric-card"><div class="metric-title">Fora de Conformidade</div><div class="metric-value" style="color: #DC2626;">{ativos_parados} <span style="font-size:1.0rem; font-weight:normal;">({pct_parados:.1f}%)</span></div></div>', unsafe_allow_html=True)
                     
-                    from datetime import datetime
-                    mes_atual = datetime.now().month
-                    ano_atual = datetime.now().year
+                    with col_kpi3:
+                        legado_count = len(df_filtrado[df_filtrado["geracao"].isin(["1ª", "2ª"])])
+                        st.markdown(f'<div class="metric-card"><div class="metric-title">Máquinas Obsoletas</div><div class="metric-value" style="color: {cor_atual};">{legado_count} un</div></div>', unsafe_allow_html=True)
                     
-                    # Carregar chamados e histórico
-                    df_chamados_total = carregar_todos_chamados()
-                    df_hist = carregar_historico()
-                    
-                    if not df_chamados_total.empty and not df_hist.empty:
-                        # Filtrar chamados do mês atual
-                        df_chamados_total['created_at'] = pd.to_datetime(df_chamados_total['created_at'])
-                        df_chamados_mes = df_chamados_total[
-                            (df_chamados_total['created_at'].dt.month == mes_atual) &
-                            (df_chamados_total['created_at'].dt.year == ano_atual)
-                        ]
-                        
-                        # Filtrar chamados resolvidos no mês atual
-                        df_hist['created_at'] = pd.to_datetime(df_hist['created_at'])
-                        df_resolvidos_mes = df_hist[
-                            (df_hist['acao'] == 'FINALIZAR CHAMADO') &
-                            (df_hist['created_at'].dt.month == mes_atual) &
-                            (df_hist['created_at'].dt.year == ano_atual)
-                        ]
-                        
-                        # CALCULAR TAXA DE RESOLUÇÃO DO MÊS ATUAL (Mesma lógica do relatório Gerencial)
-
-                        total_chamados = len(df_chamados_mes)
-                        chamados_resolvidos = 0
-                        
-                        if not df_hist.empty:
-                            df_hist_mes = df_hist[
-                                (df_hist['acao'] == 'FINALIZAR CHAMADO') &
-                                (df_hist['created_at'].dt.year == ano_atual) &
-                                (df_hist['created_at'].dt.month == mes_atual)
-                            ]
-                            
-                            if not df_hist_mes.empty:
-                                ids_finalizados = df_hist_mes['detalhes'].str.extract(r'Chamado (\d+)')[0].dropna().astype(int).tolist()
-                                chamados_resolvidos = len(df_chamados_mes[df_chamados_mes['id'].isin(ids_finalizados)])
-                        
-                        if total_chamados > 0:
-                            taxa_resolucao = (chamados_resolvidos / total_chamados) * 100
+                    with col_kpi4:
+                        df_chamados_total = carregar_chamados()
+                        if not df_chamados_total.empty:
+                            chamados_abertos = len(df_chamados_total)
+                            st.markdown(f'<div class="metric-card"><div class="metric-title">Chamados em Aberto</div><div class="metric-value" style="color: #FF6B6B;">{chamados_abertos}</div></div>', unsafe_allow_html=True)
                         else:
-                            taxa_resolucao = 0
+                            st.markdown(f'<div class="metric-card"><div class="metric-title">Chamados em Aberto</div><div class="metric-value" style="color: #FF6B6B;">0</div></div>', unsafe_allow_html=True)
+
+                    st.markdown("<br>", unsafe_allow_html=True)
+
+                    # --- MIX DE GRÁFICOS EM 3 COLUNAS ---
+                    col_g_esquerda, col_g_centro, col_g_direita = st.columns([1.3, 1.3, 1.4])
+                
+                # GRÁFICO DE GERAÇÃO CPU 
+                    with col_g_esquerda:
+                        if not df_filtrado.empty:
+                            geracao_counts = df_filtrado[df_filtrado["geracao"] != ""].value_counts("geracao").reset_index(name="qtd")
+                            fig_ger = px.bar(geracao_counts, x="geracao", y="qtd", title="<b>MATRIZ DE OBSOLESCÊNCIA DE CPU</b>")
+                            fig_ger.update_traces(
+                                marker_color=cor_atual, 
+                                texttemplate='%{y}', 
+                                textposition='inside',
+                                textfont=dict(size=15, color="white")
+                            )
+                            fig_ger.update_layout(
+                                showlegend=False, 
+                                height=270, 
+                                margin=dict(t=35, b=5, l=5, r=5),
+                                title={'x': 0.45, 'xanchor': 'center'},
+                                paper_bgcolor='rgba(0,0,0,0)', 
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                yaxis=dict(visible=False),
+                                xaxis=dict(title="Geração")
+                            )
+                            fig_ger.update_xaxes(showgrid=False)
+                            fig_ger.update_yaxes(showgrid=False, visible=False)
+                            st.plotly_chart(fig_ger, use_container_width=True)
+
+                    # GRÁFICO DE STATUS OPERACIONAL (DONUT) - Gráfico de Rosca
+                    with col_g_centro:
+                        if not df_filtrado.empty:
+                            status_counts = df_filtrado["status"].value_counts().reset_index(name="qtd")
+                            fig_st_donut = px.pie(status_counts, values='qtd', names='status', hole=0.5, title="<b>STATUS OPERACIONAL GERAL</b>", color='status', color_discrete_map=mapa_cores_plotly)
+                            fig_st_donut.update_traces(
+                            textfont=dict(size=15, color="white"),
+                            texttemplate='%{percent:.0%}',  # SEM CASAS DECIMAIS
+                            hovertemplate='<b>Status: %{label}</b><br>Quantidade: %{value}<br>Percentual: %{percent:.0%}<extra></extra>'
+        )
+                            fig_st_donut.update_layout(
+                                showlegend=True, 
+                                height=270,
+                                margin=dict(t=35, b=5, l=5, r=5),
+                                title={'x': 0.5, 'xanchor': 'center'},
+                                legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(size=14)),
+                                paper_bgcolor='rgba(0,0,0,0)', 
+                                plot_bgcolor='rgba(0,0,0,0)'
+                            )
+                            st.plotly_chart(fig_st_donut, use_container_width=True)
+                            
+                # GRÁFICO DE CONVÊNIO DE SISTEMAS OPERACIONAIS - Gráfico de Barras        
+                    with col_g_direita:
+                        if not df_filtrado.empty:
+                            so_data = df_filtrado["sistema_operacional"].value_counts().reset_index(name="qtd")
+                            fig_so = px.bar(so_data, x='qtd', y='sistema_operacional', orientation='h', text_auto=True, title="<b>DISTRIBUIÇÃO SO</b>")
+                            fig_so.update_traces(
+                                marker_color=cor_atual,
+                                textposition="inside",
+                                textfont=dict(size=15, color="white"),
+                                hovertemplate='<b>SO: %{y}</b><br>Quantidade: %{x}<extra></extra>'
+                            )
+                            fig_so.update_layout(
+                                title_x=0.33, 
+                                height=270, 
+                                bargap=0.35,
+                                margin=dict(t=35, b=5, l=5, r=5), 
+                                paper_bgcolor='rgba(0,0,0,0)', 
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                xaxis=dict(visible=False),
+                                yaxis=dict(title="")
+                            ) 
+                            fig_so.update_xaxes(showgrid=False, title="")
+                            fig_so.update_yaxes(showgrid=False, title="")
+                            st.plotly_chart(fig_so, use_container_width=True)
+
+                    # --- SEÇÃO INFERIOR COMPLEMENTAR DE MANUTENÇÃO ---
+                    st.markdown("<hr style='margin: 15px 0; border-color: rgba(128,128,128,0.2);'>", unsafe_allow_html=True)
+                    col_g_infra, col_g_anomalias = st.columns([2.1, 1.9])
+                    
+                    # GRÁFICO DE BARRAS (REGISTRO DE CHAMADOS MENSAIS)
+                    with col_g_infra:
+                        st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>CHAMADOS REGISTRADOS MENSALMENTE</p>", unsafe_allow_html=True)
                         
-                        if taxa_resolucao > 100:
-                            taxa_resolucao = 100
+                        df_chamados_total = carregar_todos_chamados()
                         
-                        # Criar gráfico de velocímetro
-                        # CRIA UM DATAFRAME PARA O VELOCÍMETRO
-                        df_gauge = pd.DataFrame({
-                            'Categoria': ['Resolvidos', 'Restante'],
-                            'Valor': [taxa_resolucao, 100 - taxa_resolucao]
-                        })
-                        
-                        fig_gauge = px.pie(
-                            df_gauge,
-                            values='Valor',
-                            names='Categoria',
-                            hole=0.7,
-                            color='Categoria',
-                            color_discrete_map={'Resolvidos': cor_atual, 'Restante': '#E0E0E0'},
-                            title=f"<b></b>"
-                        )
-                        fig_gauge.update_traces(
-                            textinfo='none',
-                            hoverinfo='none',
-                            marker=dict(line=dict(color='#FFFFFF', width=2))
-                        )
-                        fig_gauge.update_layout(
-                                height=250,
-                                margin=dict(t=50, b=20, l=10, r=10),
+                        if not df_chamados_total.empty:
+                            df_mensal = df_chamados_total.copy()
+                            df_mensal['created_at'] = pd.to_datetime(df_mensal['created_at'])
+                            
+                            meses_pt = {
+                                'Jan': 'Jan', 'Feb': 'Fev', 'Mar': 'Mar', 'Apr': 'Abr',
+                                'May': 'Mai', 'Jun': 'Jun', 'Jul': 'Jul', 'Aug': 'Ago',
+                                'Sep': 'Set', 'Oct': 'Out', 'Nov': 'Nov', 'Dec': 'Dez'
+                            }
+                            
+                            df_mensal['mes_num'] = df_mensal['created_at'].dt.month
+                            df_mensal['ano'] = df_mensal['created_at'].dt.year
+                            df_mensal['mes_ano'] = df_mensal['created_at'].dt.strftime('%b')
+                            
+                            for en, pt in meses_pt.items():
+                                df_mensal['mes_ano'] = df_mensal['mes_ano'].str.replace(en, pt)
+                            
+                            df_mensal['data_ref'] = df_mensal['created_at'].dt.to_period('M')
+                            df_agrupado = df_mensal.groupby(['mes_ano', 'data_ref']).size().reset_index(name='quantidade')
+                            df_agrupado = df_agrupado.sort_values('data_ref')
+                            
+                            fig_barras = px.bar(
+                                df_agrupado,
+                                x='mes_ano',
+                                y='quantidade',
+                                title="<b></b>",
+                                labels={'mes_ano': 'Mês/Ano', 'quantidade': 'Chamados'},
+                                text='quantidade',
+                                color_discrete_sequence=[cor_atual]
+                            )
+
+                            fig_barras.update_traces(
+                                textposition='inside',
+                                textfont=dict(size=15, color='white'),
+                                hovertemplate='<b>Mês: %{x}</b><br>Chamados: %{y}<extra></extra>'
+                            )
+                            
+                            fig_barras.update_layout(
+                                height=260,
+                                margin=dict(t=50, b=25, l=5, r=5),  # ESPAÇO PARA O RÓTULO
+                                title={'x': 0.5, 'xanchor': 'center'},
                                 paper_bgcolor='rgba(0,0,0,0)',
                                 plot_bgcolor='rgba(0,0,0,0)',
-                                showlegend=False,
-                                annotations=[
-                                    dict(
-                                        text=f"{taxa_resolucao:.0f}%",
-                                        x=0.5,
-                                        y=0.5,
-                                        font_size=28,
-                                        font_color=cor_atual,
-                                        showarrow=False
-                                    )
-                                ]
+                                xaxis=dict(showgrid=False, title=""),
+                                yaxis=dict(showgrid=False, visible=False)
                             )
-                        st.plotly_chart(fig_gauge, use_container_width=True)
+                            st.plotly_chart(fig_barras, use_container_width=True)
+                            
+                            total_chamados = len(df_chamados_total)
+                            st.caption(f"")
+                        else:
+                            st.markdown(f"""
+                                <div style="
+                                    border: 3px dashed {cor_atual}; 
+                                    border-radius: 10px; 
+                                    padding: 40px 20px; 
+                                    text-align: center; 
+                                    background-color: {cor_secundaria}15;
+                                    height: 260px;
+                                    display: flex;
+                                    flex-direction: column;
+                                    justify-content: center;
+                                    align-items: center;
+                                ">
+                                    <span style="font-size: 2.5rem; margin-bottom: 10px;">📭</span>
+                                    <p style="margin:0; font-weight:700; font-size:1.1rem; color:{cor_atual}; text-transform: uppercase;">
+                                        Nenhum chamado registrado
+                                    </p>
+                                    <p style="margin:5px 0 0 0; color:inherit; font-size:0.95rem; opacity: 0.85;">
+                                        Abra chamados para ver o histórico mensal
+                                    </p>
+                                </div>
+                            """, unsafe_allow_html=True)
+                    
+                    with col_g_anomalias:
+                        st.markdown("<p style='margin:0; font-weight:700; font-size:1.05rem; text-align:center;'>TAXA DE RESOLUÇÃO (MÊS ATUAL)</p>", unsafe_allow_html=True)
                         
-                        # MENSAGEM EXPLICATIVA NA COR ATUAL DA PALETA(APENAS QUANDO NÃO HÁ CHAMADOS)
-                        if total_chamados == 0:
-                            st.markdown(f"<p style='color: {cor_atual}; font-size: 0.9rem; text-align: center;'>Nenhum chamado aberto neste mês.<br> A taxa de resolução será calculada quando houver chamados.</p>", unsafe_allow_html=True)
+                        from datetime import datetime
+                        mes_atual = datetime.now().month
+                        ano_atual = datetime.now().year
+                        
+                        # Carregar chamados e histórico
+                        df_chamados_total = carregar_todos_chamados()
+                        df_hist = carregar_historico()
+                        
+                        if not df_chamados_total.empty and not df_hist.empty:
+                            # Filtrar chamados do mês atual
+                            df_chamados_total['created_at'] = pd.to_datetime(df_chamados_total['created_at'])
+                            df_chamados_mes = df_chamados_total[
+                                (df_chamados_total['created_at'].dt.month == mes_atual) &
+                                (df_chamados_total['created_at'].dt.year == ano_atual)
+                            ]
+                            
+                            # Filtrar chamados resolvidos no mês atual
+                            df_hist['created_at'] = pd.to_datetime(df_hist['created_at'])
+                            df_resolvidos_mes = df_hist[
+                                (df_hist['acao'] == 'FINALIZAR CHAMADO') &
+                                (df_hist['created_at'].dt.month == mes_atual) &
+                                (df_hist['created_at'].dt.year == ano_atual)
+                            ]
+                            
+                            # CALCULAR TAXA DE RESOLUÇÃO DO MÊS ATUAL (Mesma lógica do relatório Gerencial)
 
-                # Tabela Completa de Dados
-                st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
-                if st.button("📋 Visualizar Tabela Completa de Dados", use_container_width=True):
-                    modal_tabela_dados(df_filtrado)
-
+                            total_chamados = len(df_chamados_mes)
+                            chamados_resolvidos = 0
+                            
+                            if not df_hist.empty:
+                                df_hist_mes = df_hist[
+                                    (df_hist['acao'] == 'FINALIZAR CHAMADO') &
+                                    (df_hist['created_at'].dt.year == ano_atual) &
+                                    (df_hist['created_at'].dt.month == mes_atual)
+                                ]
+                                
+                                if not df_hist_mes.empty:
+                                    ids_finalizados = df_hist_mes['detalhes'].str.extract(r'Chamado (\d+)')[0].dropna().astype(int).tolist()
+                                    chamados_resolvidos = len(df_chamados_mes[df_chamados_mes['id'].isin(ids_finalizados)])
+                            
+                            if total_chamados > 0:
+                                taxa_resolucao = (chamados_resolvidos / total_chamados) * 100
+                            else:
+                                taxa_resolucao = 0
+                            
+                            if taxa_resolucao > 100:
+                                taxa_resolucao = 100
+                            
+                            # Criar gráfico de velocímetro
+                            # CRIA UM DATAFRAME PARA O VELOCÍMETRO
+                            df_gauge = pd.DataFrame({
+                                'Categoria': ['Resolvidos', 'Restante'],
+                                'Valor': [taxa_resolucao, 100 - taxa_resolucao]
+                            })
+                            
+                            fig_gauge = px.pie(
+                                df_gauge,
+                                values='Valor',
+                                names='Categoria',
+                                hole=0.7,
+                                color='Categoria',
+                                color_discrete_map={'Resolvidos': cor_atual, 'Restante': '#E0E0E0'},
+                                title=f"<b></b>"
+                            )
+                            fig_gauge.update_traces(
+                                textinfo='none',
+                                hoverinfo='none',
+                                marker=dict(line=dict(color='#FFFFFF', width=2))
+                            )
+                            fig_gauge.update_layout(
+                                    height=250,
+                                    margin=dict(t=50, b=20, l=10, r=10),
+                                    paper_bgcolor='rgba(0,0,0,0)',
+                                    plot_bgcolor='rgba(0,0,0,0)',
+                                    showlegend=False,
+                                    annotations=[
+                                        dict(
+                                            text=f"{taxa_resolucao:.0f}%",
+                                            x=0.5,
+                                            y=0.5,
+                                            font_size=28,
+                                            font_color=cor_atual,
+                                            showarrow=False
+                                        )
+                                    ]
+                                )
+                            st.plotly_chart(fig_gauge, use_container_width=True)
+                            
+                            # MENSAGEM EXPLICATIVA NA COR ATUAL DA PALETA(APENAS QUANDO NÃO HÁ CHAMADOS)
+                            if total_chamados == 0:
+                                st.markdown(f"<p style='color: {cor_atual}; font-size: 0.9rem; text-align: center;'>Nenhum chamado aberto neste mês.<br> A taxa de resolução será calculada quando houver chamados.</p>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"""
+                                <div style="
+                                    border: 3px dashed {cor_atual}; 
+                                    border-radius: 10px; 
+                                    padding: 40px 20px; 
+                                    text-align: center; 
+                                    background-color: {cor_secundaria}15;
+                                    height: 260px;
+                                    display: flex;
+                                    flex-direction: column;
+                                    justify-content: center;
+                                    align-items: center;
+                                ">
+                                    <span style="font-size: 2.5rem; margin-bottom: 10px;">📊</span>
+                                    <p style="margin:0; font-weight:700; font-size:1.1rem; color:{cor_atual}; text-transform: uppercase;">
+                                        Sem dados de resolução
+                                    </p>
+                                    <p style="margin:5px 0 0 0; color:inherit; font-size:0.95rem; opacity: 0.85;">
+                                        A taxa será exibida quando houver chamados registrados
+                                    </p>
+                                </div>
+                            """, unsafe_allow_html=True)                                                                                          
+                    # Tabela Completa de Dados
+                    st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+                    if st.button("📋 Visualizar Tabela Completa de Dados", use_container_width=True):
+                        modal_tabela_dados(df_filtrado)
+                    
     # --- ABA 2: CENTRAL DE CHAMADOS ---
     if aba_chamado:
         with aba_chamado:
