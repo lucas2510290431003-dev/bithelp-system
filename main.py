@@ -5,6 +5,8 @@ import os
 from supabase import create_client
 import locale
 import time
+import streamlit.components.v1 as components
+# --- FUNÇÃO PARA CONVERTER VALORES PARA MAIÚSCULAS DE FORMA SEGURA ---
 def to_upper_safe(valor):
     if pd.isna(valor) or valor is None:
         return ""
@@ -16,6 +18,40 @@ except:
         locale.setlocale(locale.LC_TIME, 'portuguese')
     except:
         pass
+# --- FUNÇÃO PARA DEFINIR O COMPORTAMENTO DO "ENTER" PADRÃO DO STREAMLIT QUE É UM SUBMIT DE FORMULÁRIO PARA UM COMPORTAMENTO DE "TAB" DE NAVEGAÇÃO ENTRE CAMPOS ---
+def enter_como_tab():
+    """Faz o Enter pular pro próximo campo em vez de submeter o formulário."""
+    components.html("""
+    <script>
+    const doc = window.parent.document;
+
+    function enterHandler(e) {
+        if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+            e.stopPropagation();
+            const focaveis = Array.from(
+                doc.querySelectorAll('input, textarea, [role="combobox"]')
+            ).filter(el => el.offsetParent !== null);
+            const idx = focaveis.indexOf(e.target);
+            if (idx > -1 && idx < focaveis.length - 1) {
+                focaveis[idx + 1].focus();
+            }
+        }
+    }
+
+    function religarListeners() {
+        const campos = doc.querySelectorAll('input, textarea');
+        campos.forEach(campo => {
+            campo.removeEventListener('keydown', enterHandler);
+            campo.addEventListener('keydown', enterHandler);
+        });
+    }
+
+    religarListeners();
+    new MutationObserver(religarListeners).observe(doc.body, { childList: true, subtree: true });
+    </script>
+    """, height=0, width=0)
+
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
     page_title="Bithelp - GearTech Solutions",
@@ -918,6 +954,7 @@ if sistema_login():
 
     @st.dialog("👥 Gestão de Usuários", width="large")
     def modal_gestao_usuarios():
+        enter_como_tab()
         col_usr_cad, col_usr_exc = st.columns([3, 1])
         with col_usr_cad:
             st.markdown("**Cadastrar Novo Usuário**")
@@ -1073,6 +1110,7 @@ if sistema_login():
 
     @st.dialog("➕ Cadastro e Edição Detalhada", width="large")
     def modal_formulario_completo():
+        enter_como_tab()
         col_cad, col_exc = st.columns([3, 1])
         with col_cad:
             mapa_maquinas = {str(row['identificacao']).upper(): row for _, row in df.iterrows() if str(row['identificacao']).strip() != ""}
