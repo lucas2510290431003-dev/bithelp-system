@@ -6,6 +6,7 @@ from supabase import create_client
 import locale
 import time
 import streamlit.components.v1 as components
+from auth_utils import hash_senha, verificar_senha
 # --- FUNÇÃO PARA CONVERTER VALORES PARA MAIÚSCULAS DE FORMA SEGURA ---
 def to_upper_safe(valor):
     if pd.isna(valor) or valor is None:
@@ -87,13 +88,14 @@ def sistema_login():
                             try:
                                 client_auth = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
                                 termo = usuario_input.strip().upper()
-                                response = client_auth.table("usuarios").select("*").eq("senha", senha_input.strip()).execute()
-                                
+                                response = client_auth.table("usuarios").select("*").execute()
+
                                 usuario_valido = None
                                 if response.data:
                                     for user in response.data:
                                         if user["email"].strip().upper() == termo or user["nome"].strip().upper() == termo:
-                                            usuario_valido = user
+                                            if verificar_senha(senha_input, user["senha"]):
+                                                usuario_valido = user
                                             break
                                         
                                 if usuario_valido:
@@ -970,7 +972,7 @@ if sistema_login():
                 if st.form_submit_button("CADASTRAR NOVO USUÁRIO", use_container_width=True, type="primary"):
                     if u_nome and u_email and u_senha:
                         try:
-                            user_payload = {"nome": u_nome.strip().upper(), "email": u_email.strip().upper(), "senha": u_senha.strip(), "perfil": u_perfil}
+                            user_payload = {"nome": u_nome.strip().upper(), "email": u_email.strip().upper(), "senha": hash_senha(u_senha), "perfil": u_perfil}
                             supabase.table("usuarios").insert(user_payload).execute()
                             registrar_historico("CADASTRAR USUÁRIO", f"Criado usuário {u_nome.upper()} com nível {u_perfil}")
                             st.success(f"✅ Usuário '{u_nome.upper()}' registrado.")
