@@ -1164,7 +1164,7 @@ if sistema_login():
             with c9: 
                 new_ram = st.text_input("RAM (GB)", value=garantir_string(vals.get("qtde_memoria_ram_gb", "")))
             with c10:
-                opcoes_disco = ["SSD", "HD", "SSD + HD", "SSD NVMe M.2", "SSD / HD", "SSD "]
+                opcoes_disco = ["SSD", "HD", "SSD NVMe M.2", "HD / SSD"]
                 val_atual_disco = garantir_string(vals.get("armazenamento_tipo", ""))
                 
                 if val_atual_disco not in opcoes_disco and val_atual_disco.strip() != "":
