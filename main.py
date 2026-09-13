@@ -871,7 +871,7 @@ if sistema_login():
             return []
 
         f_lab = criar_filtro("Laboratório", "laboratorio")
-        opcoes_status = ["OK", "PENDENTE DE MANUTENÇÃO"]
+        opcoes_status = ["OK", "PENDENTE DE MANUTENÇÃO", "INATIVO", "EM REPARO"]
         f_status = st.sidebar.multiselect("Status da Máquina", options=opcoes_status, default=opcoes_status)
         f_so = criar_filtro("Sistema Operacional", "sistema_operacional")
         f_familia = criar_filtro("Família CPU", "familia_cpu")
@@ -1854,7 +1854,7 @@ if sistema_login():
                 if st.button("👥 Cadastro de Usuários", use_container_width=True, type="secondary"): 
                     modal_gestao_usuarios()
                 
-                if st.button("⚡ Atualização de Status de Chamados", use_container_width=True, type="secondary"): 
+                if st.button("⚡ Atualização de Status de Máquinas", use_container_width=True, type="secondary"): 
                     modal_status_expresso()
                 
                 if st.button("📊 Relatório Gerencial em PDF", use_container_width=True, type="secondary"):
